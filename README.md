@@ -9,24 +9,30 @@ ou suba até a órbita e veja a curvatura da Terra.
 
 Abra o `index.html` por um servidor web (veja abaixo), escolha um lugar ou busque qualquer endereço do mundo.
 
+O **analógico** (ou `WASD`) escolhe a direção do movimento, relativa à câmera. O **outro lado da tela** (ou o mouse / as setas) gira a visão. Voando, você vai para onde olha.
+
 | Ação | Teclado | Celular |
 |---|---|---|
-| Turbo (acelera sem limite: Mach 1, 2, 3… órbita) | `W` / `Shift` | botão **TURBO** |
-| Frear até parar (pairar) | `S` | botão **FREIO** |
-| Soltar o voo (planar de wingsuit) / voltar a voar | `X` | botão **SOLTAR / VOAR** |
-| Virar | `←` `→` / `A` `D` | joystick (lado esquerdo) |
-| Subir / descer | `↑` `↓` / mouse (clique na tela) | joystick |
-| Pular / andar no chão | `Espaço` / `↑` | joystick |
+| Mover (andar, nadar, voar) | `W` `A` `S` `D` | analógico (lado esquerdo) |
+| Girar a visão | mouse (clique na tela) / setas | arrastar o lado direito (pode ser por cima dos botões) |
+| Turbo no ar · correr no chão · nadar rápido | `Shift` | botão **TURBO / CORRER** |
+| Escolher o boost (Passeio, Rápido, Supersônico, Hipersônico, Orbital, Máximo) | `1`–`6` | botão **BOOST** |
+| Decolar / pousar | `F` | botão **VOAR / POUSAR** |
+| Pular (no chão) · frear (voando) | `Espaço` · `S` | botão **PULAR / FREIO** |
+| Subir / descer pairando | `Espaço` / `Q` | olhar para cima/baixo e empurrar o analógico |
+| Planar de wingsuit | `X` | botão **PLANAR** |
+| Acenar | `G` | botão **ACENAR** |
 | Trocar câmera | `C` | botão do olho |
 | Tirar foto | `P` | botão da câmera |
 | Percurso de anéis | `R` | menu → Desafios |
 | Abrir o mapa | menu → Mapa | toque no minimapa |
-| Olhar ao redor | — | arrastar o lado direito |
-| Menu (lugares, hora, estação, clima, qualidade) | `M` / `Esc` | botão ☰ |
-| Avançar 1 hora | `T` | menu → Ajustes |
+| Menu (lugares, mapa, desafios, personagem, ajustes) | `M` / `Esc` | botão ☰ |
 
 ## O que tem
 
+- **Personagem articulado** com animações de movimento real (parado, andando, correndo) e poses de voo, turbo, pairar, planar de wingsuit, nadar, pular, cair, pousar e acenar. Cores personalizáveis.
+- **Andar, correr, pular e nadar pelo mundo**: colisão com as casas (dá para pousar e andar nos telhados), nado automático em mar, lagos e rios.
+- **Casas e prédios 3D do mundo inteiro** (Overture Maps: OpenStreetMap + contornos detectados por satélite por Google e Microsoft), com telhados de duas águas e a cor que têm na foto de satélite — inclusive em cidades pequenas.
 - **Terreno real do planeta inteiro**: elevação Terrain Tiles (AWS/Mapzen) em quadtree com nível de detalhe, sobre uma esfera com o raio da Terra (curvatura real, horizonte, vista da órbita).
 - **Imagens de satélite** (Esri World Imagery ou Sentinel-2 cloudless) até ~1 m/pixel.
 - **Mundo real do OpenStreetMap** (OpenFreeMap): **casas e prédios 3D** com telhados e janelas que acendem à noite, **lagos, rios e canais** com água refletindo o céu, e **nomes de bairros, cidades, picos e lagos** flutuando sobre o cenário.
@@ -57,4 +63,4 @@ Para testar localmente: `python3 -m http.server` na pasta e abra `http://localho
 
 Relevo: Terrain Tiles (Mapzen / AWS Open Data) · Imagens: Esri, Maxar, Earthstar Geographics / Sentinel-2 cloudless © EOX (Copernicus) ·
 Luzes noturnas: NASA Black Marble (GIBS) · Clima: Open-Meteo · Nomes de lugares, prédios e água: © colaboradores do OpenStreetMap (OpenFreeMap / OpenMapTiles, Nominatim) ·
-Motor 3D: three.js.
+Prédios: Overture Maps Foundation (OpenStreetMap, Google Open Buildings, Microsoft) · Personagem: modelo X Bot (Mixamo), dos exemplos do three.js · Motor 3D: three.js.

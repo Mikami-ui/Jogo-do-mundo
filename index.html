@@ -13,7 +13,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;1,700;1,800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
-{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js" } }
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
 </script>
 </head>
 <body>
@@ -38,6 +38,7 @@
     <div id="spd-alt"></div>
     <div id="spd-row"><span id="spd-num">0</span><span id="spd-unit">km/h</span></div>
     <div id="spd-mach"></div>
+    <div id="spd-boost"></div>
   </div>
   <div id="loading"></div>
   <div id="topbar">
@@ -48,8 +49,10 @@
   <div id="touch" class="hidden">
     <div id="stick"><div id="stick-knob"></div></div>
     <div id="tbtns">
-      <button id="t-fly" class="tb">SOLTAR</button>
-      <button id="t-brake" class="tb">FREIO</button>
+      <button id="t-level" class="tb sm">BOOST 2</button>
+      <button id="t-x" class="tb sm">PLANAR</button>
+      <button id="t-fly" class="tb">POUSAR</button>
+      <button id="t-a" class="tb">FREIO</button>
       <button id="t-boost" class="tb big">TURBO</button>
     </div>
   </div>
@@ -128,7 +131,7 @@
     <div class="tab hidden" id="tab-personagem">
       <div class="row"><label>Cor do traje</label><div class="ctl sw" id="sw-suit" data-key="suit" data-opts="#1c3f9e,#b3202a,#1b1d24,#1f7a4a,#5b2a9e,#d9dde3,#d9a514,#0f8f9e"></div></div>
       <div class="row"><label>Detalhes e luzes</label><div class="ctl sw" id="sw-acc" data-key="acc" data-opts="#ff6a1a,#19d3ff,#9dff2a,#ff3d9a,#ffffff,#ffd21a,#ff2a2a"></div></div>
-      <div class="row"><label>Capacete</label><div class="ctl sw" id="sw-helmet" data-key="helmet" data-opts="#eeeeee,#20232b,#c9a227,#b3202a,#1c3f9e"></div></div>
+      <div class="row"><label>Asas do wingsuit</label><div class="ctl sw" id="sw-helmet" data-key="helmet" data-opts="#eeeeee,#20232b,#c9a227,#b3202a,#1c3f9e"></div></div>
       <div class="row"><label>Rastro de vapor</label><div class="ctl sw" id="sw-trail" data-key="trail" data-opts="#ffffff,#ff6a1a,#19d3ff,#ff3d9a,#9dff2a,#ffd21a"></div></div>
       <p class="note">As cores mudam na hora — feche o menu para ver o personagem.</p>
     </div>
@@ -152,19 +155,20 @@
     </div>
     <div class="tab hidden" id="tab-controles">
       <div class="keys">
-        <div><kbd>W</kbd> / <kbd>Shift</kbd><span>Turbo (acelera sem limite, até Mach e órbita)</span></div>
-        <div><kbd>S</kbd><span>Frear até parar (pairar)</span></div>
-        <div><kbd>X</kbd><span>Soltar o voo (planar de wingsuit) / voltar a voar</span></div>
-        <div><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd><span>Virar</span></div>
-        <div><kbd>↑</kbd> <kbd>↓</kbd> / mouse<span>Subir / descer (clique na tela para usar o mouse)</span></div>
-        <div><kbd>Espaço</kbd><span>Pular (no chão) · voltar a voar (planando)</span></div>
+        <div><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd><span>Mover na direção da câmera (andar, nadar, voar)</span></div>
+        <div>mouse / <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd><span>Girar a visão (clique na tela para usar o mouse). Voando, você vai para onde olha</span></div>
+        <div><kbd>Shift</kbd><span>Turbo no ar · correr no chão · nadar rápido</span></div>
+        <div><kbd>1</kbd>–<kbd>6</kbd><span>Escolher o boost: Passeio, Rápido, Supersônico, Hipersônico, Orbital, Máximo</span></div>
+        <div><kbd>F</kbd><span>Decolar / pousar</span></div>
+        <div><kbd>Espaço</kbd><span>Pular (no chão) · subir (pairando). <kbd>Q</kbd> desce</span></div>
+        <div><kbd>X</kbd><span>Planar de wingsuit</span></div>
+        <div><kbd>G</kbd><span>Acenar</span></div>
         <div><kbd>C</kbd><span>Trocar câmera</span></div>
-        <div><kbd>M</kbd> / <kbd>Esc</kbd><span>Menu</span></div>
         <div><kbd>P</kbd><span>Tirar foto</span></div>
         <div><kbd>R</kbd><span>Começar percurso de anéis</span></div>
-        <div><kbd>T</kbd><span>Avançar 1 hora</span></div>
+        <div><kbd>M</kbd> / <kbd>Esc</kbd><span>Menu</span> · <kbd>T</kbd><span>Avançar 1 hora</span></div>
       </div>
-      <p class="note">No celular: arraste o lado esquerdo da tela para pilotar, segure <b>TURBO</b> para acelerar e <b>FREIO</b> para parar, e toque em <b>SOLTAR</b> para planar. Arraste o lado direito para olhar ao redor.</p>
+      <p class="note">No celular: o <b>analógico</b> (lado esquerdo) escolhe a direção; <b>arrastar o lado direito</b> gira a visão — voando, você vai para onde olha. Segure <b>TURBO</b> para acelerar até a velocidade do <b>BOOST</b> escolhido (toque nele para trocar), <b>POUSAR</b> desce até o chão, <b>PLANAR</b> abre o wingsuit. No chão, <b>CORRER</b> e <b>PULAR</b>; na água o personagem nada sozinho.</p>
       <p class="note">Fontes: relevo Terrain Tiles (Mapzen/AWS) · <span id="cred-img2"></span> · luzes noturnas NASA Black Marble · clima Open-Meteo · nomes, casas, lagos e rios © colaboradores do OpenStreetMap (OpenFreeMap).</p>
     </div>
   </div>

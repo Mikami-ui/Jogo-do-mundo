@@ -33,7 +33,7 @@ function readValue(r) {
   }
   return v;
 }
-function readFeature(r, keys, values) {
+function readFeature(r, keys, values, keep) {
   const f = { type: 0, props: {}, geom: null };
   let tags = null, g = null;
   while (r.p < r.end) {
@@ -43,7 +43,13 @@ function readFeature(r, keys, values) {
     else if (fld === 4) g = r.sub();
     else r.skip(w);
   }
-  if (tags) while (tags.p < tags.end) { const k = keys[tags.varint()], v = values[tags.varint()]; f.props[k] = v; }
+  if (tags) while (tags.p < tags.end) {
+    const k = keys[tags.varint()], vi = tags.varint();
+    if (keep && !keep.has(k)) continue;
+    let v = values[vi];
+    if (v instanceof Reader) v = values[vi] = readValue(v); // decodifica só os valores usados
+    f.props[k] = v;
+  }
   const rings = [];
   if (g) {
     let x = 0, y = 0, ring = null;
@@ -56,7 +62,7 @@ function readFeature(r, keys, values) {
   f.geom = rings;
   return f;
 }
-function readLayer(r, want) {
+function readLayer(r, want, keep) {
   const L = { name: '', extent: 4096, features: [] };
   const keys = [], values = [], feats = [];
   while (r.p < r.end) {
@@ -64,18 +70,19 @@ function readLayer(r, want) {
     if (f === 1) { const s = r.sub(); L.name = td.decode(r.b.subarray(s.p, s.end)); if (!want.has(L.name)) return null; }
     else if (f === 2) feats.push(r.sub());
     else if (f === 3) { const s = r.sub(); keys.push(td.decode(r.b.subarray(s.p, s.end))); }
-    else if (f === 4) values.push(readValue(r.sub()));
+    else if (f === 4) values.push(r.sub());
     else if (f === 5) L.extent = r.varint();
     else r.skip(w);
   }
-  for (const fr of feats) L.features.push(readFeature(fr, keys, values));
+  for (const fr of feats) L.features.push(readFeature(fr, keys, values, keep));
   return L;
 }
-export function decodeMVT(buf, wantLayers) {
-  const r = new Reader(buf), want = new Set(wantLayers), out = {};
+// keepKeys (opcional): só essas propriedades são lidas — tiles com milhares de feições ficam bem mais rápidos
+export function decodeMVT(buf, wantLayers, keepKeys) {
+  const r = new Reader(buf), want = new Set(wantLayers), out = {}, keep = keepKeys ? new Set(keepKeys) : null;
   while (r.p < r.end) {
     const t = r.varint(), f = t >> 3, w = t & 7;
-    if (f === 3) { const L = readLayer(r.sub(), want); if (L) out[L.name] = L; }
+    if (f === 3) { const L = readLayer(r.sub(), want, keep); if (L) out[L.name] = L; }
     else r.skip(w);
   }
   return out;

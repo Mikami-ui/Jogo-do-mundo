@@ -125,155 +125,258 @@ export class Avatar {
 }
 
 // ---------------- física ----------------
+// Níveis de boost: velocidade de cruzeiro (analógico) e velocidade máxima com o TURBO (m/s)
+export const BOOSTS = [
+  { name: 'Passeio', cruise: 12, top: 70, run: 9 },
+  { name: 'Rápido', cruise: 30, top: 250, run: 12 },
+  { name: 'Supersônico', cruise: 60, top: 680, run: 16 },
+  { name: 'Hipersônico', cruise: 110, top: 2040, run: 20 },
+  { name: 'Orbital', cruise: 160, top: 7800, run: 24 },
+  { name: 'Máximo', cruise: 200, top: Infinity, run: 28 },
+];
+const angDiff = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
+
 export class Player {
   constructor() {
     this.x = 0; this.y = 2000; this.z = 0;
-    this.yaw = 0; this.pitch = 0; this.roll = 0; this.speed = 80;
-    this.mode = 'fly'; // fly | glide | walk
-    this.vy = 0; this.agl = 1000; this.ground = 0; this.onWater = false;
-    this.events = [];
-    this.boostAmt = 0; this.machPrev = 0;
+    this.vx = 0; this.vy = 0; this.vz = 0;
+    this.yaw = 0; this.pitch = 0; this.roll = 0; this.speed = 0;
+    this.mode = 'fly'; // walk | swim | fly | glide
+    this.boost = 1; this.agl = 1000; this.ground = 0; this.onWater = false; this.waterLevel = 0;
+    this.onGround = false; this.hover = true; this.landing = false; this.landT = 0; this.t = 0;
+    this.events = []; this.boostAmt = 0; this.machPrev = 0;
+    this.dir = new THREE.Vector3(0, 0, -1); this.L = new THREE.Vector3(); this.tmp = new THREE.Vector3();
   }
   forward(out) {
+    if (this.speed > 2) return out.set(this.vx, this.vy, this.vz).multiplyScalar(1 / this.speed);
     const cp = Math.cos(this.pitch);
     return out.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
   }
   get mach() { return this.speed / speedOfSound(this.y); }
-  update(dt, inp, terrain) {
-    const g = terrain.heightAt(this.x, this.z);
-    this.ground = g.h; this.onWater = !!g.water;
-    const rho = Math.exp(-Math.max(this.y, 0) / 8500);
-    const sx = inp.steerX, sy = inp.steerY;
-    this.boostAmt = lerp(this.boostAmt, inp.boost ? 1 : 0, 1 - Math.exp(-dt * 6));
-    if (inp.takeoff()) {
-      if (this.mode === 'fly') { if (this.agl > 3) { this.mode = 'glide'; this.speed = Math.max(this.speed, 25); this.events.push('release'); } }
-      else { this.mode = 'fly'; if (this.agl < 3) { this.y += 1.5; this.pitch = 0.45; this.speed = Math.max(this.speed, 18); } this.events.push('takeoff'); }
+  get hspeed() { return Math.hypot(this.vx, this.vz); }
+  // coloca o jogador voando numa direção (teletransporte)
+  launch(yaw, pitch, speed) {
+    this.mode = 'fly'; this.landing = false; this.yaw = yaw; this.pitch = pitch;
+    this.dir.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+    this.speed = speed; this.vx = this.dir.x * speed; this.vy = this.dir.y * speed; this.vz = this.dir.z * speed;
+    this.hover = speed < 14; this.machPrev = this.mach;
+  }
+  // terreno, água e construções num ponto
+  probe(terrain, world, x, z) {
+    const g = terrain.heightAt(x, z);
+    const lake = world.waterAt(x, z);
+    const b = world.buildingAt(x, z);
+    let sea = !!g.water;
+    if (sea) { const c = terrain.colorAt(x, z); if (c && c[0] > c[2] * 1.12 && c[0] + c[1] + c[2] > 300) sea = false; } // areia clara na foto: é praia
+    else if (g.ok && g.h < 5 && !lake) { // costa: o relevo às vezes marca o mar 1–4 m acima de zero; a foto azul-escura decide
+      const c = terrain.colorAt(x, z);
+      if (c) { const l = (v) => (v / 255) ** 2.2, r = l(c[0]), gg = l(c[1]), bb = l(c[2]); if (bb > r * 2.2 && bb > gg * 0.85 && 0.21 * r + 0.72 * gg + 0.07 * bb < 0.22) sea = true; }
     }
-    if (this.mode === 'fly') {
-      const turn = lerp(1.7, 0.75, clamp(this.speed / 2500, 0, 1));
-      this.yaw += sx * turn * dt;
-      this.pitch = clamp(this.pitch + sy * 1.35 * dt, -1.45, 1.45);
-      if (inp.boost) {
-        this.speed += (26 + this.speed * 0.55) * dt;
-        const vmax = Math.min(1700 * Math.exp(Math.max(this.y, 0) / 12000), 120000);
-        if (this.speed > vmax) this.speed = lerp(this.speed, vmax, 1 - Math.exp(-dt * 2));
-      } else {
-        this.speed -= 9.81 * Math.sin(this.pitch) * dt * (this.speed > 2 ? 1 : 0);
-        const drag = rho * (0.0012 * Math.min(this.speed, 120) ** 2 + 0.3 * Math.max(this.speed - 120, 0));
-        this.speed -= drag * dt;
+    return { ground: g.h, ok: g.ok, water: sea || !!lake, level: lake ? Math.max(lake.level ?? -1e9, g.h + 0.45) : g.water ? 0 : g.h, roof: b ? b.top : null };
+  }
+  // move com colisão nas paredes; devolve true se bateu
+  move(dt, terrain, world) {
+    const nx = this.x + this.vx * dt, nz = this.z + this.vz * dt;
+    const feet = this.y - 1;
+    const blocked = (x, z) => { const b = world.buildingAt(x, z); return b && feet < b.top - 0.6; };
+    // já está dentro de uma construção (ela carregou depois): sobe para o telhado em vez de ficar preso
+    const inside = world.buildingAt(this.x, this.z);
+    if (inside && feet < inside.top - 0.6) { this.y = inside.top + 1.05; this.vy = 0; this.x = nx; this.z = nz; return false; }
+    if (!blocked(nx, nz)) { this.x = nx; this.z = nz; return false; }
+    if (!blocked(nx, this.z)) { this.x = nx; this.vz *= 0.2; }
+    else if (!blocked(this.x, nz)) { this.z = nz; this.vx *= 0.2; }
+    else { this.vx *= 0.1; this.vz *= 0.1; }
+    return true;
+  }
+  toggleFly() {
+    if (this.mode === 'fly') { this.landing = !this.landing; if (this.landing) this.events.push('landing'); }
+    else {
+      if (this.mode === 'swim') this.events.push('splash');
+      const wasGround = this.mode !== 'glide';
+      this.mode = 'fly'; this.landing = false; this.hover = this.speed < 14;
+      if (wasGround) { this.y += 0.6; this.vy = 6; this.vx *= 0.5; this.vz *= 0.5; }
+      this.events.push('takeoff');
+    }
+  }
+  update(dt, inp, terrain, world, cam) {
+    this.t += dt;
+    const here = this.probe(terrain, world, this.x, this.z);
+    this.ground = here.ground; this.onWater = here.water; this.waterLevel = here.level;
+    const alt = Math.max(this.y, 0), rho = Math.exp(-alt / 8500);
+    const B = BOOSTS[this.boost];
+    const turbo = !!inp.turbo;
+    this.boostAmt = lerp(this.boostAmt, turbo && this.mode !== 'swim' ? 1 : 0, 1 - Math.exp(-dt * 6));
+    this.landT = Math.max(0, this.landT - dt);
+    const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cpt = Math.cos(cam.pitch);
+    const L = this.L.set(sy * cpt, Math.sin(cam.pitch), -cy * cpt);
+    const m = Math.min(Math.hypot(inp.mx, inp.my), 1);
+    if (inp.fly()) this.toggleFly();
+    if (inp.glide() && this.mode === 'fly' && this.agl > 4) { this.mode = 'glide'; this.landing = false; this.speed = Math.max(this.speed, 22); this.pitch = Math.min(this.pitch, -0.2); this.yaw = Math.atan2(this.dir.x, -this.dir.z); this.events.push('release'); }
+
+    if (this.mode === 'walk' || this.mode === 'swim') {
+      const swim = this.mode === 'swim';
+      // direção do analógico relativa à câmera
+      let tx = 0, tz = 0;
+      if (m > 0.06) {
+        const a = cam.yaw + Math.atan2(inp.mx, inp.my);
+        const sp = swim ? (turbo ? 4.6 : 1.9) * m : turbo ? B.run * Math.max(m, 0.6) : m < 0.45 ? (m / 0.45) * 1.7 : lerp(1.7, 6.4, (m - 0.45) / 0.55);
+        tx = Math.sin(a) * sp; tz = -Math.cos(a) * sp;
+        this.yaw += angDiff(a, this.yaw) * (1 - Math.exp(-dt * (swim ? 5 : 12)));
       }
-      if (inp.brake) this.speed -= (this.speed * 2.4 + 18) * dt;
-      if (this.speed < 0.5 && !inp.boost) this.speed = Math.max(this.speed, 0);
-      this.speed = Math.max(this.speed, 0);
-      // voo pairado: sem gravidade (super-herói)
-      const f = this.forward(new THREE.Vector3());
-      this.x += f.x * this.speed * dt; this.y += f.y * this.speed * dt; this.z += f.z * this.speed * dt;
-      this.roll = lerp(this.roll, -sx * 1.05 * clamp(this.speed / 30, 0.3, 1), 1 - Math.exp(-dt * 5));
-    } else if (this.mode === 'glide') {
-      this.yaw += sx * 1.1 * dt;
-      const target = -0.4 + sy * 0.32;
-      this.pitch = lerp(this.pitch, target, 1 - Math.exp(-dt * 2.2));
-      this.speed += (-9.81 * Math.sin(this.pitch) - 0.00145 * rho * this.speed * this.speed - (rho < 0.3 ? 0 : 0)) * dt;
-      if (rho < 0.2) this.speed += 9.81 * dt * 0.5; // ar rarefeito: queda livre
-      this.speed = Math.max(this.speed, 5);
-      const f = this.forward(new THREE.Vector3());
-      this.x += f.x * this.speed * dt; this.y += f.y * this.speed * dt; this.z += f.z * this.speed * dt;
-      this.roll = lerp(this.roll, -sx * 0.7, 1 - Math.exp(-dt * 4));
-      if (inp.boost) { this.mode = 'fly'; this.events.push('takeoff'); }
-    } else {
-      // caminhando / correndo
-      this.yaw += sx * 2.2 * dt;
-      const run = inp.boost ? 22 : 7.5;
-      const target = Math.max(sy, 0) * run + (inp.fwd ? run : 0);
-      this.speed = lerp(this.speed, target, 1 - Math.exp(-dt * 4));
-      this.pitch = lerp(this.pitch, 0, 1 - Math.exp(-dt * 8));
-      this.roll = lerp(this.roll, 0, 1 - Math.exp(-dt * 8));
-      this.x += Math.sin(this.yaw) * this.speed * dt; this.z -= Math.cos(this.yaw) * this.speed * dt;
-      if (inp.jump()) { if (this.agl < 0.3) { this.vy = 8; this.events.push('jump'); } }
-      this.vy -= 9.81 * dt;
-      this.y += this.vy * dt;
-    }
-    // contato com o chão
-    const g2 = terrain.heightAt(this.x, this.z);
-    const floor = (g2.ok ? g2.h : this.ground) + 1.0;
-    if (this.y < floor) {
-      if (this.mode === 'walk') { this.y = floor; this.vy = 0; }
-      else {
-        const f = this.forward(new THREE.Vector3());
-        const vz = f.y * this.speed;
-        if (vz < -18 || (this.mode === 'glide' && this.speed > 35)) {
-          this.events.push(g2.water ? 'splash' : 'impact');
-          this.speed *= this.mode === 'glide' ? 0.15 : 0.55;
-          this.pitch = this.mode === 'fly' ? 0.2 : 0;
-          if (this.mode === 'glide') this.mode = 'walk';
+      const acc = 1 - Math.exp(-dt * (swim ? 3 : this.onGround ? 11 : 2.2));
+      this.vx += (tx - this.vx) * acc; this.vz += (tz - this.vz) * acc;
+      if (this.move(dt, terrain, world) && this.hspeed > 8) this.events.push('bonk');
+      const e = this.probe(terrain, world, this.x, this.z);
+      const feet = this.y - 1;
+      let floor = e.ground + 1;
+      if (e.roof != null && feet >= e.roof - 0.6) floor = Math.max(floor, e.roof + 1);
+      if (swim) {
+        if (!e.water) { this.mode = 'walk'; this.y = Math.max(this.y, floor); this.vy = 0; this.onGround = true; this.events.push('land'); }
+        else {
+          this.y = lerp(this.y, e.level + 0.02 + Math.sin(this.t * 2.2) * 0.035, 1 - Math.exp(-dt * 6)); this.vy = 0;
+          if (inp.jump()) this.toggleFly();
         }
-        this.y = floor;
-        if (this.mode === 'fly') {
-          this.pitch = Math.max(this.pitch, 0.02);
-          if (this.speed < 10 && !inp.boost) { this.mode = 'walk'; this.events.push('land'); }
-        } else if (this.mode === 'glide') { this.mode = 'walk'; this.events.push('land'); }
+        this.onGround = false;
+      } else {
+        const was = this.onGround;
+        if (inp.jump() && this.onGround) { this.vy = turbo ? 9.5 : 6.6; this.onGround = false; this.events.push('jump'); }
+        this.vy -= 19 * dt;
+        this.y += this.vy * dt;
+        if (this.y <= floor || (was && this.vy <= 0 && this.y - floor < 0.75)) {
+          if (this.vy < -11) { this.landT = 0.32; this.events.push(this.vy < -30 ? 'impact' : 'land'); }
+          this.y = floor; this.vy = 0; this.onGround = true;
+        } else this.onGround = false;
+        if (e.water && this.y <= e.level + 1.15) { this.mode = 'swim'; this.onGround = false; if (this.vy < -4 || this.hspeed > 5) this.events.push('splash'); this.vy = 0; }
+        // caiu de muito alto: abre o wingsuit
+        else if (!this.onGround && this.y - floor > 45 && this.vy < -24) { this.mode = 'glide'; this.speed = Math.hypot(this.vx, this.vy, this.vz); this.pitch = -0.6; this.events.push('release'); }
       }
+      this.pitch = 0; this.roll = lerp(this.roll, 0, 1 - Math.exp(-dt * 8));
+      this.speed = Math.hypot(this.vx, this.vy, this.vz); this.hover = false; this.landing = false;
+      this.agl = this.y - floor;
+    } else if (this.mode === 'fly') {
+      const fwd = Math.max(inp.my, 0), back = Math.max(-inp.my, 0);
+      const vmaxAir = Math.min(1700 * Math.exp(alt / 12000), 120000);
+      const sT = this.landing ? 0 : turbo ? Math.min(B.top, vmaxAir) : fwd * B.cruise;
+      let s = this.speed;
+      const flight = !this.landing && (s > 14 || sT > 14);
+      const d = this.dir;
+      if (flight) {
+        // voo rápido: voa para onde a câmera aponta; o analógico vira (X) e acelera/freia (Y)
+        cam.yaw += inp.mx * lerp(1.5, 0.55, clamp(s / 1500, 0, 1)) * dt;
+        if (s < 1.5) d.copy(L);
+        // só muda de rumo quando o jogador pilota (analógico ou turbo); sem comando, segue reto e a visão fica livre
+        const steer = fwd > 0.05 || turbo || Math.abs(inp.mx) > 0.05;
+        const ang = d.angleTo(L), w = lerp(3.2, 1.3, clamp(s / 1200, 0, 1)) * dt;
+        if (steer && ang > 1e-4) { this.tmp.copy(L).sub(d).multiplyScalar(Math.min(1, w / ang)); d.add(this.tmp).normalize(); }
+        if (inp.brake || back > 0.15) s -= (s * 2.3 + 14) * dt * Math.max(back, inp.brake ? 1 : 0);
+        else if (sT > s) s = Math.min(sT, s + (turbo ? (B.top === Infinity ? 26 + s * 0.55 : Math.max((sT - s) * 0.85, 12)) : (sT - s) * 1.3 + 5) * dt);
+        else s = Math.max(sT, s - (Math.sqrt(rho) * 0.4 * (s - sT) + 2.5 * Math.sqrt(rho)) * dt);
+        s = Math.max(s, 0);
+        this.vx = d.x * s; this.vy = d.y * s; this.vz = d.z * s;
+        const yawT = Math.atan2(d.x, -d.z);
+        const dy = angDiff(yawT, this.yaw);
+        this.roll = lerp(this.roll, clamp(-dy / Math.max(dt, 1e-3) * 0.55 - inp.mx * 0.5, -1.1, 1.1) * clamp(s / 30, 0.3, 1), 1 - Math.exp(-dt * 4));
+        this.yaw = yawT; this.pitch = Math.asin(clamp(d.y, -1, 1));
+      } else {
+        // pairando: move-se em qualquer direção relativa à câmera (para a frente segue o olhar)
+        let wx = 0, wy = 0, wz = 0;
+        if (this.landing) { wy = -clamp(this.agl * 1.3 + 3, 3, 90); }
+        else {
+          const hv = 11;
+          wx = (L.x * inp.my + cy * inp.mx) * hv; wz = (L.z * inp.my + sy * inp.mx) * hv; wy = (L.y * inp.my + (inp.up || 0)) * hv;
+          if (inp.brake) { wx = wz = wy = 0; }
+        }
+        const k = 1 - Math.exp(-dt * 4);
+        this.vx += (wx - this.vx) * k; this.vy += (wy - this.vy) * (this.landing ? 1 - Math.exp(-dt * 8) : k); this.vz += (wz - this.vz) * k;
+        s = Math.hypot(this.vx, this.vy, this.vz);
+        if (s > 0.5) d.set(this.vx, this.vy, this.vz).multiplyScalar(1 / s);
+        if (m > 0.1 || s > 2) this.yaw += angDiff(cam.yaw, this.yaw) * (1 - Math.exp(-dt * 6));
+        this.pitch = lerp(this.pitch, 0, 1 - Math.exp(-dt * 6)); this.roll = lerp(this.roll, -inp.mx * 0.22, 1 - Math.exp(-dt * 5));
+      }
+      this.speed = s; this.hover = !flight; this.onGround = false;
+      const py = this.y;
+      // parede: em voo rápido quica para cima; pairando só desliza (dá para subir rente à parede)
+      if (this.move(dt, terrain, world) && flight) { if (s > 20) this.events.push('impact'); s *= 0.25; this.speed = s; d.y = Math.abs(d.y) + 0.3; d.normalize(); this.vx = d.x * s; this.vz = d.z * s; this.vy = d.y * s; }
+      this.y += this.vy * dt;
+      const e = this.probe(terrain, world, this.x, this.z);
+      let floor = e.ground + 1;
+      if (e.roof != null && py - 1 >= e.roof - 0.6) floor = Math.max(floor, e.roof + 1);
+      if (e.water && this.y < e.level + 1.0 && floor <= e.level + 1.1) {
+        if (s < 18 || this.landing) { this.mode = 'swim'; this.landing = false; this.events.push('splash'); this.vy = 0; }
+        else { if (this.vy < -15) this.events.push('splash'); this.y = e.level + 1.0; d.y = Math.max(d.y, 0.03); d.normalize(); }
+      } else if (this.y < floor) {
+        if (this.vy < -20 && !this.landing) { this.events.push('impact'); s *= 0.5; this.speed = s; }
+        this.y = floor;
+        if (this.landing || (s < 16 && !turbo)) { this.mode = 'walk'; this.landing = false; this.onGround = true; this.landT = 0.3; this.vy = 0; this.events.push('land'); }
+        else { d.y = Math.max(d.y, 0.03); d.normalize(); }
+      }
+      this.agl = this.y - floor;
+    } else {
+      // planando de wingsuit: vira com o analógico (X); para a frente mergulha, para trás freia o mergulho
+      cam.yaw += inp.mx * 1.0 * dt;
+      this.yaw += angDiff(cam.yaw, this.yaw) * (1 - Math.exp(-dt * 3));
+      this.pitch = lerp(this.pitch, -0.4 - inp.my * 0.32, 1 - Math.exp(-dt * 2.2));
+      let s = this.speed;
+      s += (-9.81 * Math.sin(this.pitch) - 0.00145 * rho * s * s) * dt;
+      if (rho < 0.2) s += 9.81 * dt * 0.5;
+      s = Math.max(s, 5); this.speed = s;
+      const d = this.dir.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
+      this.vx = d.x * s; this.vy = d.y * s; this.vz = d.z * s;
+      this.roll = lerp(this.roll, -inp.mx * 0.7, 1 - Math.exp(-dt * 4));
+      const py = this.y;
+      const hit = this.move(dt, terrain, world);
+      this.y += this.vy * dt;
+      const e = this.probe(terrain, world, this.x, this.z);
+      let floor = e.ground + 1;
+      if (e.roof != null && py - 1 >= e.roof - 0.6) floor = Math.max(floor, e.roof + 1);
+      if (turbo || inp.jump()) { this.mode = 'fly'; this.hover = false; this.events.push('takeoff'); }
+      else if (e.water && this.y < e.level + 1.0 && floor <= e.level + 1.1) { this.mode = 'swim'; this.events.push('splash'); this.vx *= 0.2; this.vz *= 0.2; this.vy = 0; }
+      else if (this.y < floor || hit) {
+        if (s > 32 || hit) this.events.push('impact');
+        this.y = Math.max(this.y, floor); this.mode = 'walk'; this.onGround = !hit; this.landT = 0.35; this.vx *= 0.15; this.vz *= 0.15; this.vy = 0; this.events.push('land');
+      }
+      this.hover = false; this.onGround = false; this.agl = this.y - floor;
     }
-    this.agl = this.y - floor;
-    if (this.mode === 'walk' && this.agl > 25) { this.mode = 'glide'; this.speed = Math.max(this.speed, 20); this.pitch = -0.3; }
     // Mach 1: estrondo sônico
-    const m = this.mach;
-    if (this.machPrev < 1 && m >= 1 && rho > 0.05) this.events.push('boom');
-    this.machPrev = m;
+    const mc = this.mach;
+    if (this.machPrev < 1 && mc >= 1 && rho > 0.05) this.events.push('boom');
+    this.machPrev = mc;
   }
 }
 
 // ---------------- câmera ----------------
+// Órbita livre em torno do personagem: o jogador gira a visão; voando, o personagem segue para onde a câmera aponta.
 export class CameraRig {
   constructor(camera) {
-    this.camera = camera; this.mode = 0; // 0 perseguição, 1 perto, 2 primeira pessoa, 3 cinematográfica
-    this.off = new THREE.Vector3(0, 3, 9); this.shake = 0; this.t = 0; this.fov = 65;
-    this.f = new THREE.Vector3(); this.tmp = new THREE.Vector3(); this.look = new THREE.Vector3();
-    this.orbit = 0;
+    this.camera = camera; this.mode = 0; // 0 normal, 1 perto, 2 primeira pessoa
+    this.yaw = 0; this.pitch = -0.12; this.dist = 8; this.shake = 0; this.fov = 65;
+    this.L = new THREE.Vector3(); this.look = new THREE.Vector3();
   }
-  next() { this.mode = (this.mode + 1) % 4; return ['Perseguição', 'Perto', 'Primeira pessoa', 'Cinematográfica'][this.mode]; }
-  update(dt, p, terrain, look) {
-    this.t += dt;
-    const f = p.forward(this.f);
+  next() { this.mode = (this.mode + 1) % 3; return ['Câmera normal', 'Câmera próxima', 'Primeira pessoa'][this.mode]; }
+  turn(dx, dy) { this.yaw += dx; this.pitch = clamp(this.pitch - dy, -1.45, 1.45); }
+  update(dt, p, terrain) {
     const v = p.speed;
     const sp = clamp(Math.log(1 + v / 60) / Math.log(1 + 3000 / 60), 0, 1);
-    let want;
-    if (p.mode === 'walk') {
-      want = this.tmp.set(-Math.sin(p.yaw) * 5.5, 2.2, Math.cos(p.yaw) * 5.5);
-    } else if (this.mode === 0 || this.mode === 1) {
-      const d = this.mode === 0 ? 7 + sp * 3 : 3.8 + sp * 1.5;
-      want = this.tmp.copy(f).multiplyScalar(-d);
-      want.y += this.mode === 0 ? 1.7 : 0.8;
-    } else if (this.mode === 2) {
-      want = this.tmp.copy(f).multiplyScalar(0.6); want.y += 0.25;
-    } else {
-      this.orbit += dt * 0.25;
-      want = this.tmp.set(Math.sin(p.yaw + 1.9 + Math.sin(this.orbit) * 0.6) * 12, 2.5 + Math.sin(this.orbit * 0.7) * 2, -Math.cos(p.yaw + 1.9 + Math.sin(this.orbit) * 0.6) * 12);
-    }
-    // giro livre da câmera (arrastar)
-    if (look && (look.x || look.y)) {
-      const a = look.x, b = look.y;
-      const r = want.length();
-      const yaw0 = Math.atan2(want.x, want.z) + a, pit0 = clamp(Math.asin(clamp(want.y / r, -1, 1)) + b, -1.2, 1.4);
-      want.set(Math.sin(yaw0) * Math.cos(pit0) * r, Math.sin(pit0) * r, Math.cos(yaw0) * Math.cos(pit0) * r);
-    }
-    const k = 1 - Math.exp(-dt * (this.mode === 2 ? 30 : 7));
-    this.off.lerp(want, k);
+    const ground = p.mode === 'walk' || p.mode === 'swim';
+    const cp = Math.cos(this.pitch);
+    const L = this.L.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
+    const fp = this.mode === 2;
+    const want = fp ? 0 : ground ? (this.mode === 1 ? 2.6 : 4.4) : this.mode === 1 ? 4 + sp * 1.5 : 6.5 + sp * 3.5;
+    this.dist = lerp(this.dist, want, 1 - Math.exp(-dt * 5));
+    const up = fp ? (ground ? 0.72 : 0.2) : ground ? 0.95 : p.hover ? 1.0 : 1.25;
+    const C = { x: p.x - L.x * this.dist + (fp ? L.x * 0.25 : 0), y: p.y + up - L.y * this.dist, z: p.z - L.z * this.dist + (fp ? L.z * 0.25 : 0) };
+    const g = terrain.heightAt(C.x, C.z);
+    if (g.ok && C.y < g.h + 0.5) C.y = g.h + 0.5;
     // tremor em alta velocidade / perto do Mach 1 / impactos
     const m = p.mach;
     const trans = Math.exp(-((m - 1) ** 2) / 0.01) * 0.25;
     const sh = this.shake + (v > 200 ? Math.min((v - 200) / 3000, 0.12) : 0) * Math.exp(-p.y / 15000) + trans;
     this.shake = Math.max(0, this.shake - dt * 1.5);
-    const C = { x: p.x + this.off.x, y: p.y + this.off.y, z: p.z + this.off.z };
-    const g = terrain.heightAt(C.x, C.z);
-    if (g.ok && C.y < g.h + 1.2) C.y = g.h + 1.2;
-    const jx = (Math.random() - 0.5) * sh, jy = (Math.random() - 0.5) * sh;
-    this.camera.position.set(jx, C.y + jy, 0);
-    if (this.mode === 2 && p.mode !== 'walk') this.look.set(p.x - C.x + f.x * 50, p.y + f.y * 50, p.z - C.z + f.z * 50);
-    else this.look.set(p.x - C.x + f.x * 6, p.y + f.y * 6 + (p.mode === 'walk' ? 1 : 0.4), p.z - C.z + f.z * 6);
+    this.camera.position.set((Math.random() - 0.5) * sh, C.y + (Math.random() - 0.5) * sh, 0);
+    this.look.set(L.x, C.y + L.y, L.z);
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.look);
-    if (p.mode !== 'walk') this.camera.rotateZ(p.roll * (this.mode === 2 ? 0.9 : 0.28));
+    if (!ground) this.camera.rotateZ(p.roll * (fp ? 0.8 : 0.22));
     const fovT = 62 + sp * 34 + p.boostAmt * 6;
     this.fov = lerp(this.fov, fovT, 1 - Math.exp(-dt * 3));
     this.camera.fov = this.fov; this.camera.updateProjectionMatrix();

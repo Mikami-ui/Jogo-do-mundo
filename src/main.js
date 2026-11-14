@@ -5,7 +5,8 @@ import { sunTransmitJS, skyRadianceJS } from './atmosphere.js';
 import { Terrain, IMAGERY } from './terrain.js';
 import { Globe, Sky } from './globe.js';
 import { Clouds, Precip } from './clouds.js';
-import { Avatar, Player, CameraRig } from './player.js';
+import { Avatar, Player, CameraRig, BOOSTS } from './player.js';
+import { Hero } from './hero.js';
 import { Effects } from './effects.js';
 import { Post } from './post.js';
 import { Buildings } from './buildings.js';
@@ -43,7 +44,7 @@ const PLACES = [
 ];
 
 // ---------------- ajustes ----------------
-const DEFAULTS = { now: true, hour: 12, ts: '1', season: 'auto', weather: 'live', quality: matchMedia('(pointer: coarse)').matches ? 'media' : 'alta', img: 'esri', suit: '#1c3f9e', acc: '#ff6a1a', helmet: '#eeeeee', trail: '#ffffff', bld: true, lbl: true, snd: true, inv: false, blur: true, sens: 1 };
+const DEFAULTS = { now: true, hour: 12, ts: '1', season: 'auto', weather: 'live', quality: matchMedia('(pointer: coarse)').matches ? 'media' : 'alta', img: 'esri', suit: '#1c3f9e', acc: '#ff6a1a', helmet: '#eeeeee', trail: '#ffffff', boost: 1, bld: true, lbl: true, snd: true, inv: false, blur: true, sens: 1 };
 let S = { ...DEFAULTS };
 try { S = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('jdm-settings') || '{}') }; } catch (e) { /* sem storage */ }
 const saveS = () => { try { localStorage.setItem('jdm-settings', JSON.stringify(S)); } catch (e) { /* ok */ } };
@@ -84,7 +85,7 @@ const precip = new Precip(scene);
 const effects = new Effects(scene);
 const buildings = new Buildings(scene, frame, terrain);
 const world = new World(scene, frame, terrain, G, camera);
-const avatar = new Avatar(); scene.add(avatar.root);
+const avatar = new Hero(new Avatar()); scene.add(avatar.root);
 const player = new Player();
 const rig = new CameraRig(camera);
 const sound = new Sound();
@@ -95,7 +96,7 @@ scene.fog = new THREE.FogExp2(0x9fb3c8, 0.00002);
 
 function applyQuality() {
   terrain.setQuality(S.quality);
-  world.radius = S.quality === 'alta' ? 2 : 1;
+  world.radius = 1; world.bDist = { baixa: 450, media: 750, alta: 1400 }[S.quality];
   post.mat.uniforms.uSamples.value = S.quality === 'baixa' ? 1 : S.quality === 'media' ? 6 : 10;
   resize();
 }
@@ -116,95 +117,106 @@ const env = { light: 1, humidity: 0.5, snowy: false, pr: 1 };
 const amb = [0.2, 0.25, 0.35], sunT = [1, 1, 1];
 
 // ---------------- entrada ----------------
+// Analógico (ou WASD) = direção do movimento, relativa à câmera. Outro lado da tela (ou mouse/setas) = visão.
 const keys = new Set(), pressed = new Set();
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+const take = (...names) => { let r = false; for (const n of names) if (pressed.delete(n)) r = true; return r; };
 const inp = {
-  steerX: 0, steerY: 0, boost: false, brake: false, fwd: false, sprint: false,
-  mouseX: 0, mouseY: 0, stickX: 0, stickY: 0, look: { x: 0, y: 0 }, tBoost: false, tBrake: false,
-  takeoff() { const r = pressed.has('KeyX') || pressed.has('KeyF') || pressed.has('fly') || (player.mode === 'glide' && pressed.has('Space')); pressed.delete('KeyX'); pressed.delete('KeyF'); pressed.delete('fly'); if (player.mode === 'glide') pressed.delete('Space'); return r; },
-  jump() { const r = pressed.has('Space') || pressed.has('jump'); pressed.delete('Space'); pressed.delete('jump'); return r; },
+  mx: 0, my: 0, up: 0, turbo: false, brake: false, stickX: 0, stickY: 0, tTurbo: false, tBrake: false,
+  fly() { return take('KeyF', 'fly'); },
+  glide() { return take('KeyX', 'glide'); },
+  jump() { return take('Space', 'jump'); },
 };
+function setBoost(i, quiet) {
+  player.boost = clamp(i, 0, BOOSTS.length - 1); S.boost = player.boost; saveS();
+  $('t-level').textContent = 'BOOST ' + (player.boost + 1);
+  if (!quiet) toast(`Boost ${player.boost + 1}: ${BOOSTS[player.boost].name}`);
+}
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
   if (!keys.has(e.code)) pressed.add(e.code);
   keys.add(e.code);
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyM' || e.code === 'Escape') { if (playing) toggleMenu(); }
-  if (e.code === 'KeyC' && playing) toast(rig.next());
-  if (e.code === 'KeyP' && playing) photoReq = true;
-  if (e.code === 'KeyR' && playing && !menuOpen) game.startRings();
-  if (e.code === 'KeyT' && playing) { hourOffsetMs += 3600000; toast('+1 hora'); }
+  if (!playing) return;
+  if (/^Digit[1-6]$/.test(e.code)) setBoost(+e.code.slice(5) - 1);
+  if (e.code === 'KeyC') toast(rig.next());
+  if (e.code === 'KeyG') avatar.wave();
+  if (e.code === 'KeyP') photoReq = true;
+  if (e.code === 'KeyR' && !menuOpen) game.startRings();
+  if (e.code === 'KeyT') { hourOffsetMs += 3600000; toast('+1 hora'); }
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear());
 canvas.addEventListener('click', () => { if (playing && !isTouch && !menuOpen) canvas.requestPointerLock?.(); });
+const lookSign = () => (S.inv ? -1 : 1);
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement !== canvas) return;
-  inp.mouseX = clamp(inp.mouseX + e.movementX * 0.004 * S.sens, -1, 1);
-  inp.mouseY = clamp(inp.mouseY - e.movementY * 0.004 * S.sens, -1, 1);
+  rig.turn(e.movementX * 0.0026 * S.sens, e.movementY * 0.0026 * S.sens * lookSign());
 });
-// toque: joystick à esquerda, olhar à direita
+// toque: analógico na metade esquerda; arrastar em qualquer ponto da direita (inclusive sobre os botões) gira a visão
 const stick = $('stick'), knob = $('stick-knob');
-let stickId = null, stickO = null, lookId = null, lookP = null;
-canvas.addEventListener('touchstart', (e) => {
-  e.preventDefault();
+let stickId = null, stickO = null;
+const looks = new Map();
+const lookMove = (e) => {
   for (const t of e.changedTouches) {
-    if (t.clientX < window.innerWidth * 0.5 && stickId === null) {
+    const p = looks.get(t.identifier); if (!p) continue;
+    rig.turn((t.clientX - p.x) * 0.0058 * S.sens, (t.clientY - p.y) * 0.0048 * S.sens * lookSign());
+    p.x = t.clientX; p.y = t.clientY;
+  }
+};
+const lookEnd = (e) => { for (const t of e.changedTouches) looks.delete(t.identifier); };
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault(); sound.init();
+  for (const t of e.changedTouches) {
+    if (t.clientX < window.innerWidth * 0.45 && stickId === null) {
       stickId = t.identifier; stickO = { x: t.clientX, y: t.clientY };
       stick.style.left = t.clientX + 'px'; stick.style.top = t.clientY + 'px'; stick.classList.add('on');
-    } else if (lookId === null) { lookId = t.identifier; lookP = { x: t.clientX, y: t.clientY }; }
+    } else looks.set(t.identifier, { x: t.clientX, y: t.clientY });
   }
 }, { passive: false });
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
   for (const t of e.changedTouches) {
-    if (t.identifier === stickId) {
-      let dx = t.clientX - stickO.x, dy = t.clientY - stickO.y;
-      const r = Math.hypot(dx, dy), R = 55;
-      if (r > R) { dx *= R / r; dy *= R / r; }
-      knob.style.transform = `translate(${dx}px, ${dy}px)`;
-      inp.stickX = dx / R; inp.stickY = -dy / R;
-    } else if (t.identifier === lookId) {
-      inp.look.x = clamp(inp.look.x - (t.clientX - lookP.x) * 0.006, -3, 3);
-      inp.look.y = clamp(inp.look.y + (t.clientY - lookP.y) * 0.004, -1, 1);
-      lookP = { x: t.clientX, y: t.clientY };
-    }
+    if (t.identifier !== stickId) continue;
+    let dx = t.clientX - stickO.x, dy = t.clientY - stickO.y;
+    const r = Math.hypot(dx, dy), R = 58;
+    if (r > R) { dx *= R / r; dy *= R / r; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    const mag = Math.min(r / R, 1), dead = 0.12, g = mag < dead ? 0 : (mag - dead) / (1 - dead) / Math.max(mag, 1e-3);
+    inp.stickX = (dx / R) * g; inp.stickY = (-dy / R) * g;
   }
+  lookMove(e);
 }, { passive: false });
 const endTouch = (e) => {
-  for (const t of e.changedTouches) {
-    if (t.identifier === stickId) { stickId = null; inp.stickX = inp.stickY = 0; knob.style.transform = ''; stick.classList.remove('on'); }
-    if (t.identifier === lookId) lookId = null;
-  }
+  for (const t of e.changedTouches) if (t.identifier === stickId) { stickId = null; inp.stickX = inp.stickY = 0; knob.style.transform = ''; stick.classList.remove('on'); }
+  lookEnd(e);
 };
 canvas.addEventListener('touchend', endTouch); canvas.addEventListener('touchcancel', endTouch);
-const holdBtn = (id, on, off) => {
+const btn = (id, down, up) => {
   const b = $(id);
-  const d = (e) => { e.preventDefault(); b.classList.add('down'); on(); sound.init(); };
-  const u = (e) => { e.preventDefault(); b.classList.remove('down'); off?.(); };
-  b.addEventListener('touchstart', d, { passive: false }); b.addEventListener('touchend', u); b.addEventListener('touchcancel', u);
-  b.addEventListener('mousedown', d); b.addEventListener('mouseup', u); b.addEventListener('mouseleave', u);
+  const d = (e) => { e.preventDefault(); b.classList.add('down'); sound.init(); down(); if (e.changedTouches) for (const t of e.changedTouches) looks.set(t.identifier, { x: t.clientX, y: t.clientY }); };
+  const u = (e) => { e.preventDefault(); b.classList.remove('down'); up?.(); if (e.changedTouches) lookEnd(e); };
+  b.addEventListener('touchstart', d, { passive: false }); b.addEventListener('touchmove', (e) => { e.preventDefault(); lookMove(e); }, { passive: false });
+  b.addEventListener('touchend', u); b.addEventListener('touchcancel', u);
+  b.addEventListener('mousedown', d); b.addEventListener('mouseup', u); b.addEventListener('mouseleave', (e) => { if (b.classList.contains('down')) u(e); });
 };
-holdBtn('t-boost', () => (inp.tBoost = true), () => (inp.tBoost = false));
-holdBtn('t-brake', () => (inp.tBrake = true), () => (inp.tBrake = false));
-holdBtn('t-fly', () => { pressed.add(player.mode === 'walk' && player.agl < 0.5 && false ? 'jump' : 'fly'); });
+btn('t-boost', () => (inp.tTurbo = true), () => (inp.tTurbo = false));
+btn('t-a', () => { if (player.mode === 'fly') inp.tBrake = true; else pressed.add('jump'); }, () => (inp.tBrake = false));
+btn('t-fly', () => pressed.add('fly'));
+btn('t-x', () => { if (player.mode === 'fly') pressed.add('glide'); else avatar.wave(); });
+btn('t-level', () => setBoost((player.boost + 1) % BOOSTS.length));
 
 function updateInput(dt) {
   const k = (c) => keys.has(c);
-  const kx = (k('ArrowRight') || k('KeyD') ? 1 : 0) - (k('ArrowLeft') || k('KeyA') ? 1 : 0);
-  let ky = (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0);
-  inp.mouseX *= Math.exp(-dt * 2.5); inp.mouseY *= Math.exp(-dt * 2.5);
-  if (player.mode === 'walk') ky = (k('ArrowUp') || k('KeyW') ? 1 : 0) - (k('ArrowDown') ? 1 : 0);
-  let sy = clamp(ky + inp.mouseY + inp.stickY, -1, 1);
-  if (S.inv && player.mode !== 'walk') sy = -sy;
-  const sx = clamp(kx + inp.mouseX + inp.stickX, -1, 1);
-  inp.steerX = Math.sign(sx) * sx * sx * 0.35 + sx * 0.65;
-  inp.steerY = sy;
-  inp.sprint = k('ShiftLeft') || k('ShiftRight') || inp.tBoost;
-  inp.boost = player.mode === 'walk' ? inp.sprint : k('KeyW') || inp.sprint;
-  inp.fwd = player.mode === 'walk' && (k('KeyW') || k('ArrowUp'));
-  inp.brake = k('KeyS') || inp.tBrake;
-  if (lookId === null) { inp.look.x *= Math.exp(-dt * 1.5); inp.look.y *= Math.exp(-dt * 1.5); }
+  inp.mx = clamp((k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0) + inp.stickX, -1, 1);
+  inp.my = clamp((k('KeyW') ? 1 : 0) - (k('KeyS') ? 1 : 0) + inp.stickY, -1, 1);
+  const ax = (k('ArrowRight') ? 1 : 0) - (k('ArrowLeft') ? 1 : 0), ay = (k('ArrowUp') ? 1 : 0) - (k('ArrowDown') ? 1 : 0);
+  if (ax || ay) rig.turn(ax * 1.9 * dt, -ay * 1.3 * dt * lookSign());
+  inp.turbo = k('ShiftLeft') || k('ShiftRight') || inp.tTurbo;
+  inp.brake = k('KeyB') || inp.tBrake;
+  inp.up = player.mode === 'fly' ? (k('Space') || k('KeyE') ? 1 : 0) - (k('KeyQ') || k('ControlLeft') ? 1 : 0) : 0;
+  if (player.mode === 'fly') pressed.delete('Space');
 }
 
 // ---------------- UI ----------------
@@ -471,9 +483,9 @@ async function go(p) {
   player.x = 0; player.z = 0;
   player.y = p.alt ?? 1500;
   spawnGuard = p.alt == null ? 8 : 5; spawnMin = p.alt == null ? 250 : 60;
-  player.yaw = (p.hd || 0) * DEG; player.pitch = p.alt > 100000 ? 0 : -0.08;
-  player.speed = p.spd ?? 90; player.mode = 'fly'; player.machPrev = player.mach;
-  rig.off.set(0, 3, 9);
+  rig.yaw = (p.hd || 0) * DEG; rig.pitch = p.alt > 100000 ? -0.28 : -0.12;
+  player.launch(rig.yaw, p.alt > 100000 ? 0 : -0.05, p.spd ?? 45);
+  setBoost(S.boost ?? 1, true);
   place = { name: p.n, sub: p.s || '' };
   playing = true;
   if (!S.now) setHour(S.hour);
@@ -519,19 +531,19 @@ const tmpV = new THREE.Vector3(), fwdV = new THREE.Vector3();
 let hudT = 0, fps = 60;
 function loop() {
   requestAnimationFrame(loop);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const dt = Math.min(clock.getDelta(), 0.1);
   fps = lerp(fps, 1 / Math.max(dt, 1e-3), 0.05);
   G.uTime.value += dt;
   simUtc += dt * 1000 * (+S.ts) ;
   if (S.now && S.ts === '1') simUtc = Date.now();
   updateInput(dt);
 
-  if (playing && !menuOpen) player.update(dt, inp, terrain);
+  if (playing && !menuOpen) { const n = dt > 0.04 ? 2 : 1; for (let i = 0; i < n; i++) player.update(dt / n, inp, terrain, world, rig); } // subpassos mantêm a física estável em aparelhos lentos
   // garante que o jogador não comece dentro de uma montanha
   if (spawnGuard > 0) {
     spawnGuard -= dt;
     const g = terrain.heightAt(player.x, player.z);
-    if (g.ok && g.z >= 12 && player.y < g.h + spawnMin) player.y = g.h + spawnMin;
+    if (g.ok && g.z >= 12) { if (player.mode === 'fly' && !player.landing && player.y < g.h + spawnMin) player.y = g.h + spawnMin; spawnGuard = 0; }
   }
   for (const ev of player.events) {
     if (ev === 'boom') { sound.boom(); effects.boom(player, player.forward(fwdV)); rig.shake = 0.6; toast('Barreira do som!'); }
@@ -539,7 +551,10 @@ function loop() {
     else if (ev === 'splash') { sound.impact(); effects.burst(player, 'water', 200, 1.3); rig.shake = 0.6; }
     else if (ev === 'release') { sound.whoosh(); toast('Planando'); }
     else if (ev === 'takeoff') { sound.whoosh(); toast('Voando'); }
-    else if (ev === 'land') toast('Pouso');
+    else if (ev === 'landing') toast('Pousando…');
+    else if (ev === 'bonk') { sound.burst(0.25, 500, 0.5); rig.shake = 0.25; }
+    else if (ev === 'jump') sound.burst(0.18, 1200, 0.12);
+    else if (ev === 'land') { sound.burst(0.2, 400, 0.3); if (player.mode === 'walk') effects.burst(player, env.snowy ? 'snow' : 'dust', 14, 0.25); }
   }
   player.events.length = 0;
 
@@ -554,7 +569,7 @@ function loop() {
     effects.ringPos.x -= ox; effects.ringPos.z -= oz; game.shift(ox, oz);
   }
 
-  const C = rig.update(dt, player, terrain, inp.look);
+  const C = rig.update(dt, player, terrain);
   const camAlt = C.y;
   const ll = frame.toLatLon(C.x, C.z);
   const pll = frame.toLatLon(player.x, player.z);
@@ -648,16 +663,17 @@ function loop() {
 
   // avatar
   avatar.root.position.set(player.x - C.x, player.y, player.z - C.z);
-  avatar.root.rotation.set(player.pitch, -player.yaw, player.roll, 'YXZ');
-  if (player.mode === 'walk') avatar.root.rotation.set(0, -player.yaw, 0, 'YXZ');
-  const hover = player.mode === 'fly' && player.speed < 6;
+  const flying = (player.mode === 'fly' && !player.hover) || player.mode === 'glide';
+  avatar.root.rotation.set(flying ? player.pitch : 0, -player.yaw, player.mode === 'fly' || player.mode === 'glide' ? player.roll : 0, 'YXZ');
   avatar.animate(dt, {
-    fly: player.mode === 'walk' ? 0 : hover ? 0.5 : 1, upright: hover,
-    spread: player.mode === 'glide' ? 1 : clamp(1 - player.boostAmt * 0.8, 0.15, 1) * (player.speed > 600 ? 0.4 : 1),
-    walk: player.mode === 'walk' ? player.speed : 0, boost: player.mode === 'fly' ? player.boostAmt : 0,
-    flutter: clamp(player.speed / 80, 0, 1),
+    mode: player.mode, speed: flying ? player.speed : player.hspeed, vy: player.vy, air: player.mode === 'walk' && !player.onGround,
+    turbo: player.mode === 'fly' && !player.hover ? player.boostAmt : 0, hover: player.hover, landing: clamp(player.landT / 0.3, 0, 1),
   });
-  avatar.root.visible = !(rig.mode === 2 && player.mode !== 'walk');
+  avatar.root.visible = rig.mode !== 2;
+  if (player.mode === 'swim' && player.hspeed > 0.7 && Math.random() < 0.6) {
+    const a = Math.random() * 6.28;
+    effects.emit(player.x + Math.cos(a) * 0.6, player.waterLevel + 0.15, player.z + Math.sin(a) * 0.6, Math.cos(a) * 1.5 - player.vx * 0.3, 1.5 + Math.random() * 2, Math.sin(a) * 1.5 - player.vz * 0.3, 0.6 + Math.random() * 0.5, 0.8 + Math.random(), 'water');
+  }
   env.pr = pixelRatio;
   effects.update(dt, player, C, camera, avatar, env);
   landmarks.update(C);
@@ -667,7 +683,7 @@ function loop() {
   // pós
   const sp = player.speed;
   const nearF = clamp(3000 / (Math.max(player.agl, 0) + 3000) + 0.12 * Math.exp(-player.y / 30000), 0, 1);
-  const blurT = S.blur && player.mode !== 'walk' ? (clamp((sp - 120) / 1400, 0, 1) * 0.11 + player.boostAmt * 0.02) * nearF : 0;
+  const blurT = S.blur && (player.mode === 'fly' || player.mode === 'glide') ? (clamp((sp - 120) / 1400, 0, 1) * 0.11 + player.boostAmt * 0.02) * nearF : 0;
   post.mat.uniforms.uBlur.value = lerp(post.mat.uniforms.uBlur.value, blurT, 1 - Math.exp(-dt * 3));
   const lumAmb = amb[0] * 0.3 + amb[1] * 0.6 + amb[2] * 0.1;
   const lumSun = (sunT[0] * 0.3 + sunT[1] * 0.6 + sunT[2] * 0.1) * Math.max(G.uSunDir.value.y, 0) * (1 - oc * 0.7);
@@ -721,12 +737,17 @@ function updateHUD(ll, pll, camAlt, doy) {
   strip.style.transform = `translateX(${-(360 + hd) / 15 * 30 - 15}px)`;
   // dicas
   let hint = '';
-  const touch = isTouch;
-  if (player.mode === 'fly') hint = player.speed > 250 ? (touch ? 'FREIO: frear até parar — SOLTAR: soltar o voo' : 'S: frear até parar — X: soltar o voo') : player.speed < 5 ? (touch ? 'Segure TURBO para voar' : 'Pairando — segure W ou Shift para acelerar') : '';
-  else if (player.mode === 'glide') hint = touch ? 'Planando de wingsuit — SOLTAR ou TURBO para voltar a voar' : 'Planando — X ou Espaço: voltar a voar';
-  else hint = touch ? 'Joystick: andar · TURBO: correr · SOLTAR: voar' : '↑/W: andar · Shift: correr · Espaço: pular · X: voar';
+  const touch = isTouch, md = player.mode;
+  if (md === 'fly') hint = player.landing ? 'Pousando…' : player.hover ? (touch ? 'Analógico: mover · arraste a direita: olhar · TURBO: voar rápido · POUSAR: descer' : 'WASD: mover · mouse: olhar · Shift: turbo · F: pousar · Espaço/Q: subir/descer') : player.speed > 250 ? (touch ? 'Voa para onde você olha · FREIO: parar · PLANAR: wingsuit' : 'Voa para onde você olha · S: frear · X: planar · 1–6: boost') : '';
+  else if (md === 'glide') hint = touch ? 'Planando · analógico: virar e mergulhar · TURBO: voltar a voar' : 'Planando · A/D: virar · W/S: mergulhar/frear · Shift: voltar a voar';
+  else if (md === 'swim') hint = touch ? 'Nadando · TURBO: nadar rápido · VOAR: sair da água' : 'Nadando · Shift: nadar rápido · F: voar';
+  else hint = player.hspeed < 0.3 ? (touch ? 'Analógico: andar · TURBO: correr · PULAR · VOAR' : 'WASD: andar · Shift: correr · Espaço: pular · F: voar · G: acenar') : '';
   setHint(hint);
-  $('t-fly').textContent = player.mode === 'fly' ? 'SOLTAR' : 'VOAR';
+  $('t-fly').textContent = md === 'fly' ? (player.landing ? 'CANCELAR' : 'POUSAR') : 'VOAR';
+  $('t-a').textContent = md === 'fly' ? 'FREIO' : 'PULAR'; $('t-a').style.visibility = md === 'glide' ? 'hidden' : 'visible';
+  $('t-x').textContent = md === 'fly' ? 'PLANAR' : 'ACENAR'; $('t-x').style.visibility = md === 'fly' || md === 'walk' ? 'visible' : 'hidden';
+  $('t-boost').textContent = md === 'walk' ? 'CORRER' : 'TURBO';
+  $('spd-boost').textContent = `BOOST ${player.boost + 1} · ${BOOSTS[player.boost].name.toUpperCase()}`;
   const L = terrain.loading;
   $('loading').textContent = L > 3 ? `carregando terreno… ${L}` : '';
 }
@@ -739,5 +760,5 @@ globe.loadTextures(S.img);
 $('boot').textContent = 'Escolha um lugar para começar';
 loop();
 // posição inicial atrás do menu (cenário de fundo)
-frame.set(45.905, 6.86); player.y = 2600; player.yaw = 205 * DEG; player.speed = 0;
-window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe, buildings, world, game, landmarks, openTab, takePhoto: () => { photoReq = true; } };
+frame.set(45.905, 6.86); player.y = 2600; rig.yaw = 205 * DEG; player.launch(rig.yaw, 0, 0);
+window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe, buildings, world, game, landmarks, openTab, inp, avatar, setBoost, takePhoto: () => { photoReq = true; } };

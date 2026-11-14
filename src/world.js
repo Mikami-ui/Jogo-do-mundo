@@ -3,11 +3,17 @@
 import * as THREE from 'three';
 import { ATMO_GLSL } from './atmosphere.js';
 import { decodeMVT, toPolygons } from './mvt.js';
+import { PMTiles, FetchSource } from './vendor/pmtiles.js';
 import { tileSize, tileMinX, tileMaxY, MERC_MAX, RE, mulberry, clamp } from './geo.js';
 
-const DZ = 14;
-const TILEJSON = 'https://tiles.openfreemap.org/planet';
 const s2l = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const DZ = 14;
+const CG = 5; // cada tile de detalhe é dividido em CG×CG quarteirões de prédios
+const OV_CATALOG = 'https://stac.overturemaps.org/catalog.json';
+const OV_KEYS = ['height', 'num_floors', 'min_height', 'is_underground', 'has_parts', 'roof_color', 'facade_color', 'class'];
+const hex2lin = (h) => { const m = /^#?([0-9a-f]{6})$/i.exec(h || ''); if (!m) return null; const n = parseInt(m[1], 16); return [s2l((n >> 16) / 255), s2l(((n >> 8) & 255) / 255), s2l((n & 255) / 255)]; };
+const inRing = (r, x, z) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const a = r[i], b = r[j]; if ((a[1] > z) !== (b[1] > z) && x < ((b[0] - a[0]) * (z - a[1])) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+const TILEJSON = 'https://tiles.openfreemap.org/planet';
 const WALLS = [[0.86, 0.83, 0.77], [0.93, 0.92, 0.89], [0.78, 0.71, 0.62], [0.88, 0.82, 0.73], [0.74, 0.74, 0.76], [0.82, 0.76, 0.7], [0.9, 0.86, 0.78]].map((c) => c.map(s2l));
 const GLASS = [[0.5, 0.56, 0.62], [0.62, 0.64, 0.66], [0.42, 0.46, 0.52], [0.7, 0.68, 0.62], [0.55, 0.5, 0.46]].map((c) => c.map(s2l));
 const ROOFS = [[0.36, 0.34, 0.34], [0.52, 0.31, 0.24], [0.44, 0.44, 0.47], [0.58, 0.36, 0.27], [0.3, 0.3, 0.32]].map((c) => c.map(s2l));
@@ -56,7 +62,7 @@ export class World {
   constructor(scene, frame, terrain, G, camera) {
     this.scene = scene; this.frame = frame; this.terrain = terrain; this.G = G; this.camera = camera;
     this.cells = new Map(); this.inflight = 0; this.template = null; this.failed = false; this.on = true; this.labelsOn = true;
-    this.radius = 1; this.snowRoof = false; this.night = { value: 0 };
+    this.radius = 1; this.snowRoof = false; this.night = { value: 0 }; this.pm = null; this.bDist = 900;
     this.group = new THREE.Group(); scene.add(this.group);
     this.bMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     this.bMat.onBeforeCompile = (sh) => {
@@ -105,6 +111,19 @@ export class World {
     this.init();
   }
   async init() {
+    // prédios do mundo inteiro (OSM + contornos detectados por satélite): Overture Maps, release mais recente
+    this.pmReady = (async () => {
+      try {
+        const cat = await (await fetch(OV_CATALOG)).json();
+        let url = null;
+        try { const bc = await (await fetch(`https://stac.overturemaps.org/${cat.latest}/buildings/catalog.json`)).json(); url = bc.links.find((l) => l.rel === 'pmtiles')?.href; } catch (e) { /* tenta o padrão */ }
+        url = url || `https://tiles.overturemaps.org/${cat.latest}/buildings.pmtiles`;
+        const pm = new PMTiles(new FetchSource(url));
+        await pm.getHeader();
+        this.pm = pm;
+      } catch (e) { this.pm = null; }
+      return this.pm;
+    })();
     try {
       const r = await fetch(TILEJSON); if (!r.ok) throw 0;
       const j = await r.json();
@@ -112,7 +131,7 @@ export class World {
     } catch (e) { this.failed = true; }
   }
   clear() { for (const c of this.cells.values()) this.disposeCell(c); this.cells.clear(); }
-  disposeCell(c) { c.dead = true; for (const m of c.meshes || []) { this.group.remove(m); m.geometry.dispose(); } c.meshes = []; c.labels = []; }
+  disposeCell(c) { c.dead = true; for (const m of c.meshes || []) { this.group.remove(m); m.geometry.dispose(); } c.meshes = []; c.labels = []; c.chunks = null; c.waterPolys = null; }
   wantCell(z, x, y, detail) {
     const n = 2 ** z; if (y < 0 || y >= n) return null;
     const key = z + '/' + x + '/' + y;
@@ -133,7 +152,13 @@ export class World {
       if (r.status === 204 || r.status === 404) { c.state = 'built'; return; }
       if (!r.ok) throw new Error('mvt ' + r.status);
       const buf = new Uint8Array(await r.arrayBuffer());
-      c.layers = decodeMVT(buf, c.detail ? ['building', 'water', 'waterway', 'transportation', 'place', 'mountain_peak', 'water_name'] : ['place', 'mountain_peak', 'water_name']);
+      let ov = null;
+      if (c.detail) {
+        const pm = await Promise.race([this.pmReady, new Promise((res) => setTimeout(() => res(null), 7000))]);
+        if (pm) try { const t = await pm.getZxy(c.z, wx, c.y); if (t && t.data) ov = decodeMVT(new Uint8Array(t.data), ['building', 'building_part'], OV_KEYS); } catch (e) { ov = null; }
+      }
+      c.layers = decodeMVT(buf, c.detail ? [ov ? '-' : 'building', 'water', 'waterway', 'transportation', 'place', 'mountain_peak', 'water_name'] : ['place', 'mountain_peak', 'water_name']);
+      if (ov) c.layers.ov = ov;
       this.readLabels(c);
       c.state = c.detail ? 'data' : 'built';
       if (!c.detail) c.layers = null;
@@ -170,66 +195,32 @@ export class World {
     c.k = k;
     const H = (x, z) => T.heightAt(ax + x, az + z).h;
     const rnd = mulberry(c.x * 31 + c.y * 17);
-    // ---- prédios ----
-    const B = c.layers.building;
-    if (B) {
-      const pos = [], col = [], wuv = [];
-      const s = sizeL / B.extent;
-      for (const ft of B.features) {
-        if (ft.props.hide_3d) continue;
-        let h = +ft.props.render_height || 6; const minH = +ft.props.render_min_height || 0;
+    // ---- prédios: só registra os contornos por quarteirão; a malha 3D é criada quando o jogador chega perto ----
+    c.chunks = [];
+    for (let i = 0; i < CG * CG; i++) c.chunks.push({ recs: [], mesh: null, fp: null, cx: ((i % CG) + 0.5) * sizeL / CG, cz: (Math.floor(i / CG) + 0.5) * sizeL / CG });
+    const addB = (L, ov) => {
+      if (!L) return;
+      const s = sizeL / L.extent;
+      for (const ft of L.features) {
+        const pr = ft.props;
+        if (pr.hide_3d || pr.is_underground || (ov && pr.has_parts && L.name === 'building')) continue;
+        const h = ov ? +pr.height || (pr.num_floors > 0 ? pr.num_floors * 3.1 + 1 : 0) : +pr.render_height || 0;
+        const minH = ov ? +pr.min_height || 0 : +pr.render_min_height || 0;
         for (const poly of toPolygons(ft.geom)) {
           const rings = [poly.outer, ...poly.holes].map((r) => r.map((p) => [p[0] * s, p[1] * s]));
           const outer = rings[0];
-          if (outer.length < 3) continue;
           const area = poly.area * s * s;
-          if (area < 6) continue;
-          let gmin = Infinity, gmax = -Infinity, cx = 0, cz = 0;
-          for (const p of outer) { const gh = H(p[0], p[1]); if (gh < gmin) gmin = gh; if (gh > gmax) gmax = gh; cx += p[0]; cz += p[1]; }
+          if (outer.length < 3 || area < 7) continue;
+          let cx = 0, cz = 0;
+          for (const p of outer) { cx += p[0]; cz += p[1]; }
           cx /= outer.length; cz /= outer.length;
+          if (cx < 0 || cz < 0 || cx >= sizeL || cz >= sizeL) continue; // fica com o tile vizinho
           if (this.exclude.some((e) => Math.hypot((c.amx + cx / k - e.mx) * k, (c.amy - cz / k - e.my) * k) < e.r)) continue;
-          const base = gmin - 1.5 + minH, top = Math.min(gmax, gmin + 4) + h;
-          const wc = (h > 45 ? GLASS : WALLS)[Math.floor(rnd() * (h > 45 ? GLASS.length : WALLS.length))], sh = 0.85 + rnd() * 0.3;
-          const rc = this.snowRoof ? [0.62, 0.66, 0.72] : ROOFS[Math.floor(rnd() * ROOFS.length)];
-          const uo = Math.floor(rnd() * 500) * 2.9;
-          for (const ring of rings) {
-            let u = uo;
-            for (let i = 0; i < ring.length; i++) {
-              const a = ring[i], b = ring[(i + 1) % ring.length];
-              const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-              pos.push(a[0], base, a[1], b[0], base, b[1], b[0], top, b[1], a[0], base, a[1], b[0], top, b[1], a[0], top, a[1]);
-              const v0 = base - (gmin + minH), v1 = top - (gmin + minH);
-              wuv.push(u, v0, u + len, v0, u + len, v1, u, v0, u + len, v1, u, v1);
-              for (let v = 0; v < 6; v++) col.push(wc[0] * sh, wc[1] * sh, wc[2] * sh);
-              u += len;
-            }
-          }
-          // telhado: de quatro águas para casas pequenas, plano para o resto
-          const small = rings.length === 1 && outer.length <= 8 && area < 320 && h < 13;
-          if (small) {
-            const rh = Math.min(3.8, Math.sqrt(area) * 0.24 + 0.8);
-            for (let i = 0; i < outer.length; i++) {
-              const a = outer[i], b = outer[(i + 1) % outer.length];
-              pos.push(a[0], top, a[1], b[0], top, b[1], cx, top + rh, cz);
-              for (let v = 0; v < 3; v++) { col.push(rc[0], rc[1], rc[2]); wuv.push(-1, -1); }
-            }
-          } else {
-            const flat = rings.flat();
-            let tris = [];
-            try { tris = THREE.ShapeUtils.triangulateShape(outer.map((p) => new THREE.Vector2(p[0], p[1])), rings.slice(1).map((r) => r.map((p) => new THREE.Vector2(p[0], p[1])))); } catch (e) { /* polígono inválido */ }
-            for (const tr of tris) for (const ii of tr) { const p = flat[ii]; if (!p) continue; pos.push(p[0], top, p[1]); col.push(rc[0] * 0.9, rc[1] * 0.9, rc[2] * 0.9); wuv.push(-1, -1); }
-          }
+          c.chunks[Math.min(CG - 1, Math.floor(cx / sizeL * CG)) + CG * Math.min(CG - 1, Math.floor(cz / sizeL * CG))].recs.push({ rings, area, h, minH, cx, cz, fc: hex2lin(pr.facade_color), rc: hex2lin(pr.roof_color) });
         }
       }
-      if (pos.length) {
-        const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-        g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-        g.setAttribute('wuv', new THREE.Float32BufferAttribute(wuv, 2));
-        g.computeVertexNormals();
-        const m = new THREE.Mesh(g, this.bMat); m.frustumCulled = false; c.meshes.push(m); this.group.add(m);
-      }
-    }
+    };
+    if (c.layers.ov) { addB(c.layers.ov.building, true); addB(c.layers.ov.building_part, true); } else addB(c.layers.building, false);
     // ---- água: lagos, rios, canais ----
     const wpos = [];
     const W = c.layers.water;
@@ -245,6 +236,9 @@ export class World {
           const lake = ft.props.class !== 'river';
           let lvl = Infinity;
           if (lake) for (const p of rings[0]) lvl = Math.min(lvl, H(p[0], p[1]));
+          let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+          for (const p of rings[0]) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < z0) z0 = p[1]; if (p[1] > z1) z1 = p[1]; }
+          (c.waterPolys ||= []).push({ x0, x1, z0, z1, rings, level: lake ? lvl + 0.7 : null });
           for (const tr of tris) for (const ii of tr) { const p = flat[ii]; if (!p) continue; wpos.push(p[0], (lake ? lvl : H(p[0], p[1])) + 0.7, p[1]); }
         }
       }
@@ -333,7 +327,7 @@ export class World {
     c.state = 'built'; c.layers = null;
   }
   update(C, camAlt, agl) {
-    this.tick++;
+    this.tick++; this.agl = Math.max(agl, 0);
     const f = this.frame;
     const show = this.on && agl < 7000;
     this.group.visible = show;
@@ -348,8 +342,13 @@ export class World {
     }
     if (show) {
       const [cx, cy] = tile(DZ);
-      const R = this.radius, want = [];
-      for (let j = -R; j <= R; j++) for (let i = -R; i <= R; i++) want.push([cx + i, cy + j, i * i + j * j]);
+      // só os tiles de detalhe realmente próximos (cada um traz milhares de casas)
+      const R = this.radius, want = [], tsL = tileSize(DZ) * f.k, reach = Math.max(this.bDist, 900) + 250;
+      for (let j = -R; j <= R; j++) for (let i = -R; i <= R; i++) {
+        const x0 = f.mercToLocalX(tileMinX(DZ, cx + i)) - C.x, z0 = f.mercToLocalZ(tileMaxY(DZ, cy + j)) - C.z;
+        const d = Math.hypot(Math.max(x0, 0, -(x0 + tsL)), Math.max(z0, 0, -(z0 + tsL)));
+        if (d < reach) want.push([cx + i, cy + j, d]);
+      }
       want.sort((a, b) => a[2] - b[2]);
       let budget = 1;
       for (const [x, y] of want) {
@@ -357,6 +356,7 @@ export class World {
         if (c && c.state === 'data' && budget-- > 0) this.build(c);
       }
     }
+    if (show) this.updateChunks(C);
     const now = performance.now();
     for (const c of this.cells.values()) {
       if (c.state === 'fail' && now > c.retry) { this.cells.delete(c.key); continue; }
@@ -367,6 +367,131 @@ export class World {
       }
     }
     this.updateLabels(C, camAlt);
+  }
+  // célula de detalhe e coordenadas locais dela para um ponto do mundo
+  cellAt(x, z) {
+    const f = this.frame, mx = f.localToMx(x), my = f.localToMy(z), ts = tileSize(DZ);
+    const c = this.cells.get(DZ + '/' + Math.floor((mx + MERC_MAX) / ts) + '/' + Math.floor((MERC_MAX - my) / ts));
+    if (!c || c.state !== 'built' || !c.k) return null;
+    this._lx = (mx - c.amx) * c.k; this._lz = (c.amy - my) * c.k;
+    return c;
+  }
+  // prédio sob o ponto: { top, base } (alturas absolutas) ou null
+  buildingAt(x, z) {
+    const c = this.cellAt(x, z); if (!c || !c.chunks) return null;
+    const lx = this._lx, lz = this._lz, sizeL = tileSize(DZ) * c.k;
+    const gx = Math.floor(lx / sizeL * CG), gz = Math.floor(lz / sizeL * CG);
+    let best = null;
+    for (let j = gz - 1; j <= gz + 1; j++) for (let i = gx - 1; i <= gx + 1; i++) {
+      if (i < 0 || j < 0 || i >= CG || j >= CG) continue;
+      const fp = c.chunks[i + j * CG].fp; if (!fp) continue;
+      for (const b of fp) {
+        if (lx < b.x0 || lx > b.x1 || lz < b.z0 || lz > b.z1 || !inRing(b.ring, lx, lz)) continue;
+        if (!best || b.top > best.top) best = b;
+      }
+    }
+    return best;
+  }
+  // água doce sob o ponto (lago, rio largo): nível da superfície, ou null
+  waterAt(x, z) {
+    const c = this.cellAt(x, z); if (!c || !c.waterPolys) return null;
+    const lx = this._lx, lz = this._lz;
+    for (const w of c.waterPolys) {
+      if (lx < w.x0 || lx > w.x1 || lz < w.z0 || lz > w.z1 || !inRing(w.rings[0], lx, lz)) continue;
+      let hole = false; for (let i = 1; i < w.rings.length; i++) if (inRing(w.rings[i], lx, lz)) { hole = true; break; }
+      if (!hole) return { level: w.level };
+    }
+    return null;
+  }
+  // cria/descarta as malhas 3D dos quarteirões conforme a distância
+  updateChunks(C) {
+    const f = this.frame; let best = null, bd = Infinity;
+    for (const c of this.cells.values()) {
+      if (!c.chunks || c.state !== 'built') continue;
+      const ox = f.mercToLocalX(c.amx) - C.x, oz = f.mercToLocalZ(c.amy) - C.z, s = f.k / c.k;
+      for (const ch of c.chunks) {
+        if (!ch.recs.length) continue;
+        const d = Math.hypot(ox + ch.cx * s, oz + ch.cz * s);
+        if (!ch.mesh && !ch.empty && d < this.bDist && d < bd) { bd = d; best = [c, ch]; }
+        else if (ch.mesh && d > this.bDist * 1.6 + 200) { this.group.remove(ch.mesh); ch.mesh.geometry.dispose(); c.meshes.splice(c.meshes.indexOf(ch.mesh), 1); ch.mesh = null; ch.fp = null; }
+      }
+    }
+    if (best) this.buildChunk(best[0], best[1]);
+  }
+  buildChunk(c, ch) {
+    const f = this.frame, T = this.terrain;
+    const ax = f.mercToLocalX(c.amx), az = f.mercToLocalZ(c.amy), sc = f.k / c.k;
+    const probe = T.heightAt(ax + ch.cx * sc, az + ch.cz * sc);
+    if (!probe.ok || probe.z < 12) return;
+    const H = (x, z) => T.heightAt(ax + x * sc, az + z * sc).h;
+    const rnd = mulberry(c.x * 31 + c.y * 17 + Math.round(ch.cx));
+    const pos = [], col = [], wuv = [], fp = [];
+    const roofTri = (a, b, d, rc, sh) => { pos.push(a[0], a[1], a[2], b[0], b[1], b[2], d[0], d[1], d[2]); for (let v = 0; v < 3; v++) { col.push(rc[0] * sh, rc[1] * sh, rc[2] * sh); wuv.push(-1, -1); } };
+    for (const r of ch.recs) {
+      const outer = r.rings[0];
+      let gmin = Infinity, gmax = -Infinity, x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (const p of outer) { const gh = H(p[0], p[1]); if (gh < gmin) gmin = gh; if (gh > gmax) gmax = gh; if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < z0) z0 = p[1]; if (p[1] > z1) z1 = p[1]; }
+      // altura: a real quando existe; senão estimada pelo tamanho da construção
+      let h = r.h;
+      if (!(h > 0)) h = r.area < 45 ? 2.8 + rnd() * 0.6 : r.area < 170 ? 3.3 + rnd() * 1.2 : r.area < 500 ? 4.5 + rnd() * 3 : 6 + rnd() * 5;
+      const base = gmin - 1.5 + r.minH, top = Math.min(gmax, gmin + 4) + h;
+      // cores: fachada clara variada; telhado com a cor que aparece na foto de satélite
+      const sh = 0.85 + rnd() * 0.3;
+      const wc = r.fc || (h > 45 ? GLASS : WALLS)[Math.floor(rnd() * (h > 45 ? GLASS.length : WALLS.length))];
+      let rc = r.rc;
+      if (!rc && this.snowRoof) rc = [0.62, 0.66, 0.72];
+      if (!rc) {
+        const sat = T.colorAt(ax + r.cx * sc, az + r.cz * sc);
+        if (sat) { const m = Math.max(sat[0], sat[1], sat[2], 1), g = Math.min(1, 150 / m) * 0.9; rc = [s2l(Math.min(255, sat[0] * g + 18) / 255), s2l(Math.min(255, sat[1] * g + 14) / 255), s2l(Math.min(255, sat[2] * g + 12) / 255)]; }
+        else rc = ROOFS[Math.floor(rnd() * ROOFS.length)];
+      }
+      const uo = Math.floor(rnd() * 500) * 2.9;
+      for (const ring of r.rings) {
+        let u = uo;
+        for (let i = 0; i < ring.length; i++) {
+          const a = ring[i], b = ring[(i + 1) % ring.length];
+          const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          pos.push(a[0], base, a[1], b[0], base, b[1], b[0], top, b[1], a[0], base, a[1], b[0], top, b[1], a[0], top, a[1]);
+          const v0 = base - (gmin + r.minH), v1 = top - (gmin + r.minH);
+          wuv.push(u, v0, u + len, v0, u + len, v1, u, v0, u + len, v1, u, v1);
+          for (let v = 0; v < 6; v++) col.push(wc[0] * sh, wc[1] * sh, wc[2] * sh);
+          u += len;
+        }
+      }
+      let roofTop = top;
+      const small = r.rings.length === 1 && r.area < 420 && h < 13 && r.minH === 0;
+      if (small && outer.length === 4) {
+        // telhado de duas águas com cumeeira no eixo maior
+        const [p0, p1, p2, p3] = outer;
+        const l0 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), l1 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+        const q = l0 >= l1 ? [p0, p1, p2, p3] : [p1, p2, p3, p0];
+        const L = Math.max(l0, l1), Wd = Math.min(l0, l1), rh = Math.min(3.6, Wd * 0.3 + 0.4), ins = Math.min(Wd * 0.45, L * 0.3) / L;
+        const mA = [(q[0][0] + q[3][0]) / 2, (q[0][1] + q[3][1]) / 2], mB = [(q[1][0] + q[2][0]) / 2, (q[1][1] + q[2][1]) / 2];
+        const A = [mA[0] + (mB[0] - mA[0]) * ins, top + rh, mA[1] + (mB[1] - mA[1]) * ins], Bq = [mB[0] + (mA[0] - mB[0]) * ins, top + rh, mB[1] + (mA[1] - mB[1]) * ins];
+        const V = q.map((p) => [p[0], top, p[1]]);
+        roofTri(V[0], V[1], Bq, rc, 1); roofTri(V[0], Bq, A, rc, 1); roofTri(V[2], V[3], A, rc, 0.82); roofTri(V[2], A, Bq, rc, 0.82);
+        roofTri(V[1], V[2], Bq, rc, 0.9); roofTri(V[3], V[0], A, rc, 0.9);
+        roofTop = top + rh * 0.5;
+      } else if (small && outer.length <= 8) {
+        const rh = Math.min(3.4, Math.sqrt(r.area) * 0.2 + 0.6);
+        for (let i = 0; i < outer.length; i++) { const a = outer[i], b = outer[(i + 1) % outer.length]; roofTri([a[0], top, a[1]], [b[0], top, b[1]], [r.cx, top + rh, r.cz], rc, 0.85 + (i % 2) * 0.15); }
+        roofTop = top + rh * 0.4;
+      } else {
+        const flat = r.rings.flat();
+        let tris = [];
+        try { tris = THREE.ShapeUtils.triangulateShape(outer.map((p) => new THREE.Vector2(p[0], p[1])), r.rings.slice(1).map((q) => q.map((p) => new THREE.Vector2(p[0], p[1])))); } catch (e) { /* polígono inválido */ }
+        for (const tr of tris) { const a = flat[tr[0]], b = flat[tr[1]], d = flat[tr[2]]; if (a && b && d) roofTri([a[0], top, a[1]], [b[0], top, b[1]], [d[0], top, d[1]], rc, 0.9); }
+      }
+      fp.push({ x0, x1, z0, z1, ring: outer, top: roofTop, base: gmin + r.minH });
+    }
+    if (!pos.length) { ch.empty = true; return; }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setAttribute('wuv', new THREE.Float32BufferAttribute(wuv, 2));
+    g.computeVertexNormals();
+    const m = new THREE.Mesh(g, this.bMat); m.frustumCulled = false;
+    ch.mesh = m; ch.fp = fp; c.meshes.push(m); this.group.add(m);
   }
   // cidades conhecidas ao redor (para as corridas)
   cities() {
@@ -398,7 +523,8 @@ export class World {
       for (const c of groups) for (const l of c.labels) {
         if (camAlt > 60000 && c.z > 5) continue;
         if (seen.has(l.name)) continue;
-        if (!project(l) || l.d > l.range || l.d < 120) continue;
+        // no chão só aparecem os nomes de perto; quanto mais alto, mais longe se enxerga
+        if (!project(l) || l.d > Math.min(l.range, 2500 + this.agl * 70) || l.d < 60) continue;
         seen.add(l.name);
         l.score = (WEIGHT[l.cls] || 1) * (1 - l.d / l.range) + (10 - Math.min(l.rank, 10)) * 0.05;
         cand.push(l);

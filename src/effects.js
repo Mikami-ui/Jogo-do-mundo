@@ -103,7 +103,7 @@ export class Effects {
     this.ringT = 99; this.ringPos = { x: 0, y: 0, z: 0 }; this.ringDir = new THREE.Vector3();
     // partículas
     this.NP = 1500;
-    this.pw = new Float64Array(this.NP * 3); this.pv = new Float32Array(this.NP * 3); this.pl = new Float32Array(this.NP); this.pmax = new Float32Array(this.NP);
+    this.pw = new Float64Array(this.NP * 3); this.pv = new Float32Array(this.NP * 3); this.pl = new Float32Array(this.NP); this.pmax = new Float32Array(this.NP); this.pgrow = new Float32Array(this.NP);
     const g = new THREE.BufferGeometry();
     this.ppos = new Float32Array(this.NP * 3); this.pcol = new Float32Array(this.NP * 4); this.psz = new Float32Array(this.NP);
     g.setAttribute('position', new THREE.BufferAttribute(this.ppos, 3));
@@ -131,14 +131,15 @@ vec2 c = gl_PointCoord-0.5; float a = smoothstep(0.5, 0.0, length(c)); gl_FragCo
     this.pw[i * 3] = x; this.pw[i * 3 + 1] = y; this.pw[i * 3 + 2] = z;
     this.pv[i * 3] = vx; this.pv[i * 3 + 1] = vy; this.pv[i * 3 + 2] = vz;
     this.pl[i] = life; this.pmax[i] = life;
-    this.psz[i] = size;
+    this.psz[i] = size; this.pgrow[i] = kind === 'water' ? size * 0.9 : 6;
     const c = kind === 'snow' ? [1, 1, 1.05] : kind === 'water' ? [0.85, 0.9, 0.95] : [0.55, 0.47, 0.38];
     this.pcol[i * 4] = c[0]; this.pcol[i * 4 + 1] = c[1]; this.pcol[i * 4 + 2] = c[2];
   }
   burst(p, kind, n = 120, power = 1) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * 6.283, s = (5 + Math.random() * 25) * power;
-      this.emit(p.x, p.ground + 0.5, p.z, Math.cos(a) * s, (4 + Math.random() * 18) * power, Math.sin(a) * s, 1.5 + Math.random() * 1.5, 3 + Math.random() * 5, kind);
+      const w = kind === 'water';
+      this.emit(p.x, (w ? Math.max(p.waterLevel || 0, p.ground) : p.ground) + 0.5, p.z, Math.cos(a) * s * (w ? 0.5 : 1), (4 + Math.random() * 18) * power * (w ? 0.6 : 1), Math.sin(a) * s * (w ? 0.5 : 1), w ? 0.7 + Math.random() * 0.8 : 1.5 + Math.random() * 1.5, w ? 1 + Math.random() * 2 : 3 + Math.random() * 5, kind);
     }
   }
   boom(p, f) { this.ringT = 0; this.ringPos = { x: p.x, y: p.y, z: p.z }; this.ringDir.copy(f); }
@@ -148,7 +149,7 @@ vec2 c = gl_PointCoord-0.5; float a = smoothstep(0.5, 0.0, length(c)); gl_FragCo
     const f = p.forward(new THREE.Vector3());
     const m = p.mach, rho = Math.exp(-Math.max(p.y, 0) / 8500);
     // rastros das mãos (avatar está em coordenadas relativas à câmera)
-    const vis = p.mode !== 'walk' && p.speed > 90;
+    const vis = (p.mode === 'fly' || p.mode === 'glide') && p.speed > 90;
     const str = vis ? clamp((p.speed - 90) / 200, 0, 1) * 0.6 * clamp(rho * 1.4, 0, 1) * (0.35 + env.humidity * 0.5) : 0;
     for (const [tr, h] of [[this.trailL, avatar.handL], [this.trailR, avatar.handR]]) {
       if (vis) tr.push({ x: h.x + C.x, y: h.y, z: h.z + C.z }); else tr.clear();
@@ -157,7 +158,7 @@ vec2 c = gl_PointCoord-0.5; float a = smoothstep(0.5, 0.0, length(c)); gl_FragCo
     // cone de choque/vapor
     const near1 = Math.exp(-((m - 1) ** 2) / 0.006);
     const sup = clamp((m - 1.05) / 2, 0, 1) * 0.55;
-    const I = (near1 * 0.9 + sup) * clamp(rho * 1.5, 0, 1) * (p.mode === 'walk' ? 0 : 1);
+    const I = (near1 * 0.9 + sup) * clamp(rho * 1.5, 0, 1) * (p.mode === 'fly' || p.mode === 'glide' ? 1 : 0);
     this.shockMat.uniforms.uI.value = I; this.shockMat.uniforms.uT.value = this.t;
     this.shockMat.uniforms.uCol.value.setRGB(env.light, env.light, env.light);
     this.shock.visible = I > 0.01;
@@ -180,7 +181,7 @@ vec2 c = gl_PointCoord-0.5; float a = smoothstep(0.5, 0.0, length(c)); gl_FragCo
       ro.color.setRGB(env.light, env.light, env.light);
     }
     // spray ao voar rente ao chão
-    if (p.mode !== 'walk' && p.agl < 35 && p.speed > 30) {
+    if ((p.mode === 'fly' || p.mode === 'glide') && p.agl < 35 && p.speed > 30) {
       const kind = p.onWater ? 'water' : env.snowy ? 'snow' : 'dust';
       const n = Math.min(Math.floor(p.speed / 10 * (1 - p.agl / 35)), 25);
       for (let i = 0; i < n; i++) {
@@ -199,7 +200,7 @@ vec2 c = gl_PointCoord-0.5; float a = smoothstep(0.5, 0.0, length(c)); gl_FragCo
       this.ppos[i * 3] = this.pw[i * 3] - C.x; this.ppos[i * 3 + 1] = this.pw[i * 3 + 1]; this.ppos[i * 3 + 2] = this.pw[i * 3 + 2] - C.z;
       const t = this.pl[i] / this.pmax[i];
       this.pcol[i * 4 + 3] = Math.min(t * 1.5, 1) * 0.75;
-      this.psz[i] += dt * 6;
+      this.psz[i] += dt * this.pgrow[i];
       const L = env.light;
       if (i % 1 === 0) { /* luz */ }
     }

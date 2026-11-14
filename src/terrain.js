@@ -8,7 +8,7 @@ const N = 32;                 // segmentos por tile
 const ELEV_MAX_Z = 13;
 const TREE_Z = 16;
 export const IMAGERY = {
-  esri: { name: 'Esri World Imagery', maxZ: 18, url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`, credit: 'Imagens © Esri, Maxar, Earthstar Geographics' },
+  esri: { name: 'Esri World Imagery', maxZ: 19, placeholder: 3600, url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`, credit: 'Imagens © Esri, Maxar, Earthstar Geographics' },
   s2: { name: 'Sentinel-2 cloudless (EOX)', maxZ: 15, url: (z, x, y) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/${z}/${y}/${x}.jpg`, credit: 'Sentinel-2 cloudless 2020 © EOX IT Services (dados Copernicus)' },
 };
 const ELEV_URL = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
@@ -55,10 +55,11 @@ function getPixels(bmp) {
   c.drawImage(bmp, 0, 0, 256, 256);
   return c.getImageData(0, 0, 256, 256).data;
 }
-async function fetchBitmap(url, signal) {
+async function fetchBitmap(url, signal, minBytes = 0) {
   const r = await fetch(url, { mode: 'cors', signal });
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const blob = await r.blob();
+  if (blob.size < minBytes) throw new Error('sem dados'); // tile "Map data not yet available"
   return createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
 }
 
@@ -160,6 +161,10 @@ void main(){
     if (water) alb = vec3(0.01, 0.03, 0.05);
   }
   float lum = dot(alb, vec3(0.2126, 0.7152, 0.0722));
+  // faixa de areia na beira-mar: clara e amarelada na foto → é chão, não água
+  if (water && uHasTex > 0.5 && alb.r > alb.b * 1.12 && lum > 0.16) water = false;
+  // mar e lagoas rasas que o relevo marca 1–4 m acima de zero: azul-escuro na foto → é água
+  else if (!water && uHasTex > 0.5 && vH < 5.0 && alb.b > alb.r * 2.2 && alb.b > alb.g * 0.85 && lum < 0.22) water = true;
   if (!water) {
     float green = clamp((alb.g - max(alb.r, alb.b)) * 12.0, 0.0, 1.0);
     // outono: folhas mudam de cor
@@ -176,18 +181,32 @@ void main(){
     vec3 snowCol = vec3(0.6, 0.64, 0.7) * (0.6 + 0.9 * clamp(lum * 4.0, 0.0, 1.0));
     alb = mix(alb, snowCol, snow);
   }
+  if (!water) {
+    float dist = length(vRel);
+    float near = 1.0 - smoothstep(25.0, 160.0, dist);
+    if (near > 0.0) {
+      float fine = vn(vNoise * 2.3) * 0.5 + vn(vNoise * 7.1) * 0.3 + vn(vNoise * 19.0) * 0.2;
+      float mid = vn(vNoise * 0.45);
+      alb *= 1.0 + near * ((fine - 0.5) * 0.55 + (mid - 0.5) * 0.18);
+    }
+  }
   vec3 ts = sunTransmit(max(vH, 0.0), vSunMu) * (1.0 - 0.78*uOvercast);
   float ndl = max(dot(n, uSunDir), 0.0);
   vec3 light = ts * SUNK * (0.3 + 0.85*ndl) + uAmbient * 0.9 + uMoon * (0.4 + 0.6*max(n.y, 0.0));
   vec3 col = alb * light;
   if (water) {
     vec3 V = normalize(-vRel);
+    float wd = length(vRel);
     vec2 q = vNoise*0.03 + uTime*0.2;
-    vec3 wn = normalize(vUp + vec3(vn(q)-0.5, 0.0, vn(q+17.3)-0.5)*0.12);
+    float amp = 0.12 + 0.2*(1.0 - smoothstep(40.0, 1200.0, wd));
+    vec3 wn = normalize(vUp + vec3(vn(q)-0.5 + (vn(q*4.3+3.0)-0.5)*0.5, 0.0, vn(q+17.3)-0.5 + (vn(q*4.3+9.0)-0.5)*0.5)*amp);
     float fres = 0.02 + 0.98*pow(1.0 - max(dot(V, wn), 0.0), 5.0);
+    // de perto a foto de satélite do mar é só um borrão: puxa para a cor de água
+    float tint = 0.25 + 0.45*(1.0 - smoothstep(60.0, 4000.0, wd));
+    vec3 body = mix(alb, vec3(0.012, 0.075, 0.1), tint) * light;
     vec3 R = reflect(-V, wn);
-    float spec = pow(max(dot(R, uSunDir), 0.0), 300.0) * 60.0 + pow(max(dot(R, uSunDir), 0.0), 20.0) * 0.6;
-    col = mix(col, uAmbient * 1.4 + ts * 0.2, fres * 0.85) + ts * SUNK * spec * (1.0 - uOvercast);
+    float sd = max(dot(R, uSunDir), 0.0);
+    col = mix(body, uAmbient * 1.3 + ts * 0.05, fres * 0.8) + ts * SUNK * (pow(sd, 300.0) * 50.0 + pow(sd, 22.0) * 0.5) * (1.0 - uOvercast);
   }
   col = col * vT + vAerial;
   gl_FragColor = vec4(col, uFade);
@@ -245,7 +264,7 @@ class TexCache {
         if (e.state !== 'idle') return;
         e.state = 'loading';
         try {
-          const bmp = await fetchBitmap(IMAGERY[src].url(z, x, y));
+          const bmp = await fetchBitmap(IMAGERY[src].url(z, x, y), undefined, z >= 18 ? IMAGERY[src].placeholder || 0 : 0);
           if (e.needPixels) e.pixels = new Uint8ClampedArray(getPixels(bmp));
           const t = new THREE.Texture(bmp);
           t.colorSpace = THREE.SRGBColorSpace; t.flipY = false;
@@ -440,7 +459,7 @@ export class Terrain {
     this.reset();
   }
   setQuality(q) {
-    const Q = { baixa: [16, 1.25, false, 0, 0], media: [17, 1.7, true, 1600, 450], alta: [18, 2.2, true, 2600, 900] }[q];
+    const Q = { baixa: [17, 1.25, true, 700, 220], media: [18, 1.7, true, 1500, 450], alta: [19, 2.2, true, 2600, 900] }[q];
     [this.maxZ, this.splitF, this.treesOn, this.treeDist, this.treeCount] = Q;
     this.imgMaxZ = Math.min(IMAGERY[this.imgSrc].maxZ, this.maxZ);
   }
@@ -466,6 +485,24 @@ export class Terrain {
       }
     }
     return { h: 0, ok: false };
+  }
+  // cor média da imagem de satélite (sRGB 0-255) na posição local, ou null
+  colorAt(x, z) {
+    const f = this.frame;
+    let mx = f.localToMx(x); const my = f.localToMy(z);
+    let n = this._colNode;
+    if (!n || n.dead || mx < n.minX || mx >= n.minX + n.size || my > n.maxY || my <= n.maxY - n.size || !n.tex || !n.tex.pixels) {
+      n = null;
+      for (const r of this.roots) if (mx >= r.minX && mx < r.minX + r.size && my <= r.maxY && my > r.maxY - r.size) { n = r; break; }
+      while (n && n.z < TREE_Z && n.children) { const i = (mx >= n.minX + n.size / 2 ? 1 : 0) + (my <= n.maxY - n.size / 2 ? 2 : 0); n = n.children[i]; }
+      if (!n || n.z !== TREE_Z || !n.tex || !n.tex.pixels) return null;
+      this._colNode = n;
+    }
+    const it = n.imgTile(), ss = 256 / it.s;
+    const px = Math.min(255, Math.floor((n.wx - it.x * it.s) * ss + ((mx - n.minX) / n.size) * ss));
+    const py = Math.min(255, Math.floor((n.y - it.y * it.s) * ss + ((n.maxY - my) / n.size) * ss));
+    const o = (py * 256 + px) * 4, p = n.tex.pixels;
+    return [p[o], p[o + 1], p[o + 2]];
   }
   update(camera, C, camAlt, maxDist) {
     const f = ++this.frameNo;
