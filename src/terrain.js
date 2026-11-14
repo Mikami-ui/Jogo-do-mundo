@@ -29,13 +29,16 @@ class Scheduler {
       if (frame - j.frame > 20) { this.jobs.delete(j.key); j.cancel?.(); continue; }
       list.push(j);
     }
-    if (this.active >= this.max) return;
-    list.sort((a, b) => a.prio - b.prio);
-    for (const j of list) {
-      if (this.active >= this.max) break;
-      this.jobs.delete(j.key);
+    this.pump();
+  }
+  // inicia os pedidos mais prioritários; chamado a cada quadro e sempre que um download termina
+  pump() {
+    while (this.active < this.max && this.jobs.size) {
+      let best = null;
+      for (const j of this.jobs.values()) if (!best || j.prio < best.prio) best = j;
+      this.jobs.delete(best.key);
       this.active++;
-      Promise.resolve().then(j.start).catch(() => {}).finally(() => { this.active--; });
+      Promise.resolve().then(best.start).catch(() => {}).finally(() => { this.active--; this.pump(); });
     }
   }
   get pending() { return this.jobs.size + this.active; }
@@ -316,10 +319,11 @@ class Node {
     const tm = this.tm;
     const et = this.elevTile();
     const ee = tm.elev.request(et.z, et.x, et.y, prio);
-    if (!this.tex) {
+    if (!this.tex || this.tex.state === 'idle') {
+      // pede de novo a cada quadro enquanto estiver na fila (pedidos antigos são descartados pelo agendador)
       const it = this.imgTile();
-      this.tex = tm.texs.request(tm.imgSrc, it.z, it.x, it.y, prio + 0.5, this.z === TREE_Z || (this.z > TREE_Z && false));
-      tm.texs.acquire(this.tex);
+      const e = tm.texs.request(tm.imgSrc, it.z, it.x, it.y, prio + 0.5, this.z === TREE_Z);
+      if (!this.tex) { this.tex = e; tm.texs.acquire(e); }
     }
     if (this.tex.state === 'fail' && this.z - this.imgZ < 4 && this.imgZ > 0) {
       tm.texs.release(this.tex); this.imgZ--; this.tex = null; return;
@@ -423,7 +427,7 @@ export class Terrain {
     this.group = new THREE.Group(); this.group.matrixAutoUpdate = false; scene.add(this.group);
     this.treeGroup = new THREE.Group(); scene.add(this.treeGroup);
     this.index = buildIndex();
-    this.schedE = new Scheduler(6); this.schedI = new Scheduler(10);
+    this.schedE = new Scheduler(8); this.schedI = new Scheduler(16);
     this.elev = new ElevCache(this.schedE);
     this.texs = new TexCache(this.schedI, renderer);
     this.imgSrc = 'esri'; this.imgMaxZ = 17;
@@ -511,7 +515,7 @@ export class Terrain {
     if (n._dp > this.maxDist) return;
     if (n.z <= 3 && n._dp > Math.PI * RE * 0.6) return;
     const vis = this.visible(n);
-    const prio = n.z * 3 + d / n._s + (vis ? 0 : 6);
+    const prio = this.prio(n, vis);
     if (!n.ready) { n.request(prio); return; }
     const want = n.z < this.maxZ && d < n._s * this.splitF && (vis || d < n._s * 0.9) && n.z < 20;
     if (want) {
@@ -522,12 +526,38 @@ export class Terrain {
         if (!c.ready) {
           this.nodeDist(c);
           if (c._dp > this.maxDist) continue;
-          c.request(c.z * 3 + c._d / c._s); if (!c.ready) all = false;
+          c.request(this.prio(c, true)); if (!c.ready) all = false;
         }
       }
       if (all) { for (const c of ch) this.select(c); return; }
+      // enquanto os filhos carregam, já pede os níveis mais finos que serão necessários
+      for (const c of ch) this.prefetch(c, 0);
     }
     if (vis) this.rendered.push(n);
+  }
+  prio(n, vis) { return n.z + (4 * n._d) / (n._s * this.splitF) + (vis ? 0 : 8); }
+  // tile ainda não carregado: estima a faixa de altitude pelo relevo já conhecido (evita pedir detalhe demais)
+  estimate(c) {
+    if (c.ready || c._est) return;
+    const g = this.heightAt(this.frame.mercToLocalX(c.minX + c.size / 2), this.frame.mercToLocalZ(c.maxY - c.size / 2));
+    if (!g.ok) return;
+    const r = c.size * this.frame.k * 0.35;
+    c.minH = g.h - r; c.maxH = g.h + r; c._est = g.z >= Math.min(c.z - 3, 12);
+  }
+  prefetch(n, depth) {
+    if (n.z >= this.maxZ || depth > 8) return;
+    this.nodeDist(n);
+    if (n._dp > this.maxDist || n._d >= n._s * this.splitF) return;
+    const vis = this.visible(n);
+    if (!vis && n._d >= n._s * 0.9) return;
+    for (const c of n.ensureChildren()) {
+      c.lastUsed = this.frameNo;
+      this.estimate(c);
+      this.nodeDist(c);
+      if (c._dp > this.maxDist) continue;
+      if (!c.ready) c.request(this.prio(c, vis));
+      this.prefetch(c, depth + 1);
+    }
   }
   prune() {
     const old = this.frameNo - 90;

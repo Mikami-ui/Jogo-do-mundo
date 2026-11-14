@@ -105,15 +105,15 @@ void main(){
   for (int i = 0; i < 6; i++) { f += a*n3(p); p = p*2.07 + vec3(1.7, 9.2, 3.1); a *= 0.5; }
   float lat = abs(vE.z);
   float band = 0.08*cos(lat*9.0) + 0.06;  // faixas climáticas
-  float cov = clamp(uCover*0.35 + 0.32 + band, 0.0, 0.95);
-  float d = smoothstep(1.0 - cov, 1.0 - cov + 0.22, f);
+  float thr = mix(0.7, 0.5, clamp(uCover, 0.0, 1.0)) - band;
+  float d = smoothstep(thr, thr + 0.2, f);
   vec3 up = normalize(vUp);
   float mu = dot(up, uSunDir);
   vec3 ts = sunTransmit(7000.0, mu);
-  vec3 col = vec3(0.95) * (ts * SUNK * (0.3 + 0.8*max(mu, 0.0)) + vec3(0.01,0.015,0.03));
+  vec3 col = vec3(0.8) * (ts * SUNK * (0.3 + 0.7*max(mu, 0.0)) + vec3(0.01,0.015,0.03));
   vec3 rel = vWp - vec3(0.0, uCamAlt, 0.0); float L = length(rel); vec3 T;
   vec3 aer = aerial(uCamAlt, 7000.0, L, dot(rel/L, uSunDir), mu, T);
-  gl_FragColor = vec4(col*T + aer, d * 0.92 * uFadeShell);
+  gl_FragColor = vec4(col*T + aer, d * 0.85 * uFadeShell);
 }`;
 const CLOUD_VERT = /* glsl */`
 #include <common>

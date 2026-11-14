@@ -9,9 +9,10 @@ const DZ = 14;
 const TILEJSON = 'https://tiles.openfreemap.org/planet';
 const s2l = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 const WALLS = [[0.86, 0.83, 0.77], [0.93, 0.92, 0.89], [0.78, 0.71, 0.62], [0.88, 0.82, 0.73], [0.74, 0.74, 0.76], [0.82, 0.76, 0.7], [0.9, 0.86, 0.78]].map((c) => c.map(s2l));
+const GLASS = [[0.5, 0.56, 0.62], [0.62, 0.64, 0.66], [0.42, 0.46, 0.52], [0.7, 0.68, 0.62], [0.55, 0.5, 0.46]].map((c) => c.map(s2l));
 const ROOFS = [[0.36, 0.34, 0.34], [0.52, 0.31, 0.24], [0.44, 0.44, 0.47], [0.58, 0.36, 0.27], [0.3, 0.3, 0.32]].map((c) => c.map(s2l));
-const RANGE = { continent: 0, country: 0, state: 0, city: 260e3, town: 70e3, village: 22e3, suburb: 9e3, quarter: 7e3, neighbourhood: 4500, hamlet: 4500, isolated_dwelling: 1500, peak: 30e3, lake: 14e3 };
-const WEIGHT = { city: 7, town: 4.5, peak: 3.2, village: 3, suburb: 2.6, quarter: 2.3, lake: 2.2, neighbourhood: 2, hamlet: 1.8, isolated_dwelling: 1 };
+const RANGE = { continent: 0, country: 0, state: 0, city: 260e3, town: 70e3, village: 22e3, suburb: 9e3, quarter: 7e3, neighbourhood: 4500, hamlet: 4500, isolated_dwelling: 1500, peak: 30e3, lake: 6000 };
+const WEIGHT = { city: 7, town: 4.5, peak: 3.2, village: 3, suburb: 2.6, quarter: 2.3, lake: 1.4, neighbourhood: 2, hamlet: 1.8, isolated_dwelling: 1 };
 
 const WATER_VERT = /* glsl */`
 #include <common>
@@ -67,12 +68,15 @@ export class World {
   if (vWuv.y > -0.5) {
     vec2 wc = vec2(vWuv.x / 2.9, vWuv.y / 3.0);
     vec2 wf = fract(wc), wid = floor(wc);
-    float win = step(0.2, wf.x)*step(wf.x, 0.8)*step(0.32, wf.y)*step(wf.y, 0.82);
+    float win = step(0.24, wf.x)*step(wf.x, 0.76)*step(0.36, wf.y)*step(wf.y, 0.8);
     float wh = fract(sin(dot(wid, vec2(12.9898, 78.233)))*43758.5453);
-    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.035, 0.05, 0.065), win*0.8);
-    wLit = win*step(0.6, wh)*(0.5 + wh);
+    // de longe o padrão vira uma média suave (sem pontilhado)
+    float fw = max(fwidth(vWuv.x) / 2.9, fwidth(vWuv.y) / 3.0);
+    float near = 1.0 - smoothstep(0.18, 0.5, fw);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.06, 0.08, 0.1), mix(0.1, win*(0.3 + 0.25*wh), near));
+    wLit = mix(0.09, win*step(0.6, wh)*(0.5 + wh), near);
   }`)
-        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += wLit * uNightW * vec3(1.0, 0.72, 0.38) * 0.9;');
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += wLit * uNightW * vec3(1.0, 0.62, 0.28) * 0.14;');
     };
     this.wMat = new THREE.ShaderMaterial({ vertexShader: WATER_VERT, fragmentShader: WATER_FRAG, transparent: true, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide,
@@ -168,7 +172,7 @@ export class World {
           for (const p of outer) { const gh = H(p[0], p[1]); if (gh < gmin) gmin = gh; if (gh > gmax) gmax = gh; cx += p[0]; cz += p[1]; }
           cx /= outer.length; cz /= outer.length;
           const base = gmin - 1.5 + minH, top = Math.min(gmax, gmin + 4) + h;
-          const wc = WALLS[Math.floor(rnd() * WALLS.length)], sh = 0.85 + rnd() * 0.3;
+          const wc = (h > 45 ? GLASS : WALLS)[Math.floor(rnd() * (h > 45 ? GLASS.length : WALLS.length))], sh = 0.85 + rnd() * 0.3;
           const rc = this.snowRoof ? [0.62, 0.66, 0.72] : ROOFS[Math.floor(rnd() * ROOFS.length)];
           const uo = Math.floor(rnd() * 500) * 2.9;
           for (const ring of rings) {

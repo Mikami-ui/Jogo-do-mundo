@@ -534,7 +534,8 @@ function loop() {
 
   // pós
   const sp = player.speed;
-  const blurT = S.blur && player.mode !== 'walk' ? clamp((sp - 120) / 1400, 0, 1) * 0.11 + player.boostAmt * 0.02 : 0;
+  const nearF = clamp(3000 / (Math.max(player.agl, 0) + 3000) + 0.12 * Math.exp(-player.y / 30000), 0, 1);
+  const blurT = S.blur && player.mode !== 'walk' ? (clamp((sp - 120) / 1400, 0, 1) * 0.11 + player.boostAmt * 0.02) * nearF : 0;
   post.mat.uniforms.uBlur.value = lerp(post.mat.uniforms.uBlur.value, blurT, 1 - Math.exp(-dt * 3));
   const lumAmb = amb[0] * 0.3 + amb[1] * 0.6 + amb[2] * 0.1;
   const lumSun = (sunT[0] * 0.3 + sunT[1] * 0.6 + sunT[2] * 0.1) * Math.max(G.uSunDir.value.y, 0) * (1 - oc * 0.7);
@@ -542,7 +543,7 @@ function loop() {
   let key = 2.2 * lumTs * (0.3 + 0.8 * Math.max(G.uSunDir.value.y, 0)) * smooth(-0.1, 0.05, G.uSunDir.value.y) * (1 - oc * 0.78) + lumAmb + G.uMoon.value.y;
   const spaceF = smooth(15000, 60000, camAlt);
   const dip = -Math.sqrt(2 * Math.max(camAlt, 0) / RE);
-  key = lerp(key, G.uSunDir.value.y > dip ? 2.3 : 0.03, spaceF);
+  key = lerp(key, G.uSunDir.value.y > dip ? 3.2 : 0.03, spaceF);
   const expT = clamp(0.44 * Math.pow(2.4 / (key + 0.004), 0.65), 0.25, 8);
   exposure = lerp(exposure, expT, 1 - Math.exp(-dt * 1.5));
   post.mat.uniforms.uExposure.value = exposure;
