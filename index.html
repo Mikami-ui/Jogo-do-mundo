@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Jogo do Mundo</title>
+<meta name="description" content="Simulador de voo pela Terra inteira: relevo real, imagens de satélite, clima ao vivo, estações do ano e hora do dia.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;1,700;1,800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="reticle"></div>
+  <div id="compass"><div id="compass-strip"></div><div id="compass-mark"></div></div>
+  <div id="hint"></div>
+  <div id="toast"></div>
+  <div id="loc">
+    <div id="loc-name">—</div>
+    <div id="loc-sub"></div>
+    <div id="loc-coord"></div>
+    <div id="loc-wx"></div>
+  </div>
+  <div id="spd">
+    <div id="spd-alt"></div>
+    <div id="spd-row"><span id="spd-num">0</span><span id="spd-unit">km/h</span></div>
+    <div id="spd-mach"></div>
+  </div>
+  <div id="loading"></div>
+  <div id="topbar">
+    <button id="btn-cam" class="ib" title="Câmera (C)" aria-label="Trocar câmera"><svg viewBox="0 0 24 24"><path d="M4 7h3l2-2h6l2 2h3v12H4z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+    <button id="btn-menu" class="ib" title="Menu (M)" aria-label="Abrir menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+  </div>
+  <div id="touch" class="hidden">
+    <div id="stick"><div id="stick-knob"></div></div>
+    <div id="tbtns">
+      <button id="t-fly" class="tb">SOLTAR</button>
+      <button id="t-brake" class="tb">FREIO</button>
+      <button id="t-boost" class="tb big">TURBO</button>
+    </div>
+  </div>
+</div>
+
+<div id="start">
+  <div class="start-inner">
+    <div class="brand"><span class="dot"></span>SIMULADOR DA TERRA</div>
+    <h1>Jogo do <em>Mundo</em></h1>
+    <p class="lead">Voe por qualquer lugar do planeta com relevo real, imagens de satélite, clima ao vivo, estações do ano e hora do dia. Acelere até passar a barreira do som ou suba até a órbita.</p>
+    <div class="search">
+      <input id="start-q" type="search" placeholder="Buscar um lugar (ex.: Chamonix, Pão de Açúcar, Monte Fuji)" autocomplete="off">
+      <button id="start-go">Buscar</button>
+    </div>
+    <div id="start-results" class="results"></div>
+    <div class="label">Lugares em destaque</div>
+    <div id="places" class="places"></div>
+    <div class="start-foot">
+      <button id="start-geo" class="ghost">📍 Minha localização</button>
+      <span class="credits">Relevo: Terrain Tiles (AWS/Mapzen) · Clima: Open-Meteo · Lugares e prédios: © OpenStreetMap · <span id="cred-img"></span></span>
+    </div>
+  </div>
+  <div id="boot">Carregando motor 3D…</div>
+</div>
+
+<div id="menu" class="hidden">
+  <div class="menu-panel">
+    <div class="menu-head">
+      <div class="tabs">
+        <button data-tab="lugares" class="on">Lugares</button>
+        <button data-tab="ajustes">Ajustes</button>
+        <button data-tab="controles">Controles</button>
+      </div>
+      <button id="menu-close" class="ib" aria-label="Fechar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="tab" id="tab-lugares">
+      <div class="search">
+        <input id="menu-q" type="search" placeholder="Buscar qualquer lugar do mundo" autocomplete="off">
+        <button id="menu-go">Buscar</button>
+      </div>
+      <div id="menu-results" class="results"></div>
+      <div id="menu-places" class="places"></div>
+    </div>
+    <div class="tab hidden" id="tab-ajustes">
+      <div class="row"><label>Hora do dia</label>
+        <div class="ctl"><label class="chk"><input type="checkbox" id="set-now" checked> Agora (hora real local)</label>
+        <input type="range" id="set-hour" min="0" max="24" step="0.25" value="12"><span id="set-hour-v" class="val">12:00</span></div></div>
+      <div class="row"><label>Passagem do tempo</label><div class="ctl seg" id="set-ts" data-opts="1:Real,60:60×,600:600×"></div></div>
+      <div class="row"><label>Estação do ano</label><div class="ctl seg" id="set-season" data-opts="auto:Auto,spring:Primavera,summer:Verão,autumn:Outono,winter:Inverno"></div></div>
+      <div class="row"><label>Clima</label><div class="ctl seg" id="set-weather" data-opts="live:Ao vivo,clear:Limpo,cloudy:Nublado,rain:Chuva,snow:Neve,storm:Tempestade,fog:Neblina"></div></div>
+      <div class="row"><label>Qualidade gráfica</label><div class="ctl seg" id="set-quality" data-opts="baixa:Baixa,media:Média,alta:Alta"></div></div>
+      <div class="row"><label>Imagens de satélite</label><div class="ctl seg" id="set-img" data-opts="esri:Esri (detalhada),s2:Sentinel-2"></div></div>
+      <div class="row"><label>Opções</label><div class="ctl">
+        <label class="chk"><input type="checkbox" id="set-bld" checked> Prédios 3D (OpenStreetMap)</label>
+        <label class="chk"><input type="checkbox" id="set-snd" checked> Som</label>
+        <label class="chk"><input type="checkbox" id="set-inv"> Inverter eixo vertical</label>
+        <label class="chk"><input type="checkbox" id="set-blur" checked> Desfoque de velocidade</label>
+      </div></div>
+      <div class="row"><label>Sensibilidade</label><div class="ctl"><input type="range" id="set-sens" min="0.3" max="2.5" step="0.1" value="1"></div></div>
+    </div>
+    <div class="tab hidden" id="tab-controles">
+      <div class="keys">
+        <div><kbd>W</kbd> / <kbd>Shift</kbd><span>Turbo (acelera sem limite, até Mach e órbita)</span></div>
+        <div><kbd>S</kbd><span>Frear até parar (pairar)</span></div>
+        <div><kbd>X</kbd><span>Soltar o voo (planar de wingsuit) / voltar a voar</span></div>
+        <div><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd><span>Virar</span></div>
+        <div><kbd>↑</kbd> <kbd>↓</kbd> / mouse<span>Subir / descer (clique na tela para usar o mouse)</span></div>
+        <div><kbd>Espaço</kbd><span>Pular (no chão) · voltar a voar (planando)</span></div>
+        <div><kbd>C</kbd><span>Trocar câmera</span></div>
+        <div><kbd>M</kbd> / <kbd>Esc</kbd><span>Menu</span></div>
+        <div><kbd>T</kbd><span>Avançar 1 hora</span></div>
+      </div>
+      <p class="note">No celular: arraste o lado esquerdo da tela para pilotar, segure <b>TURBO</b> para acelerar e <b>FREIO</b> para parar, e toque em <b>SOLTAR</b> para planar. Arraste o lado direito para olhar ao redor.</p>
+      <p class="note">Fontes: relevo Terrain Tiles (Mapzen/AWS) · <span id="cred-img2"></span> · luzes noturnas NASA Black Marble · clima Open-Meteo · nomes e prédios © colaboradores do OpenStreetMap.</p>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
