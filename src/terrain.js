@@ -270,13 +270,20 @@ class TexCache {
 }
 
 // ---------------- árvores ----------------
-function makeTreeGeometry() {
+function makeTreeGeometry(broadleaf) {
   const parts = [];
-  const cone = new THREE.ConeGeometry(0.36, 0.82, 6, 1); cone.translate(0, 0.59, 0);
-  const cone2 = new THREE.ConeGeometry(0.26, 0.5, 6, 1); cone2.translate(0, 0.78, 0);
-  const trunk = new THREE.CylinderGeometry(0.04, 0.06, 0.25, 4, 1); trunk.translate(0, 0.12, 0);
+  let cone, cone2, trunk;
+  if (broadleaf) { // copa arredondada (florestas tropicais e temperadas quentes)
+    cone = new THREE.IcosahedronGeometry(0.42, 0); cone.scale(1.25, 0.8, 1.25); cone.translate(0, 0.62, 0);
+    cone2 = new THREE.IcosahedronGeometry(0.3, 0); cone2.scale(1.2, 0.8, 1.2); cone2.translate(0.14, 0.8, 0.08);
+    trunk = new THREE.CylinderGeometry(0.04, 0.06, 0.4, 4, 1); trunk.translate(0, 0.2, 0);
+  } else {
+    cone = new THREE.ConeGeometry(0.36, 0.82, 6, 1); cone.translate(0, 0.59, 0);
+    cone2 = new THREE.ConeGeometry(0.26, 0.5, 6, 1); cone2.translate(0, 0.78, 0);
+    trunk = new THREE.CylinderGeometry(0.04, 0.06, 0.25, 4, 1); trunk.translate(0, 0.12, 0);
+  }
   const add = (g, col) => { g = g.toNonIndexed(); const n = g.attributes.position.count; const c = new Float32Array(n * 3); for (let i = 0; i < n; i++) c.set(col, i * 3); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); parts.push(g); };
-  add(cone, [0.05, 0.11, 0.05]); add(cone2, [0.06, 0.13, 0.06]); add(trunk, [0.12, 0.08, 0.05]);
+  add(cone, broadleaf ? [0.03, 0.065, 0.02] : [0.026, 0.05, 0.022]); add(cone2, broadleaf ? [0.04, 0.08, 0.026] : [0.032, 0.062, 0.027]); add(trunk, [0.06, 0.042, 0.027]);
   let n = 0; parts.forEach((p) => (n += p.attributes.position.count));
   const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
   let o = 0;
@@ -421,7 +428,7 @@ export class Terrain {
     this.texs = new TexCache(this.schedI, renderer);
     this.imgSrc = 'esri'; this.imgMaxZ = 17;
     this.maxZ = 17; this.splitF = 1.9; this.treesOn = true; this.treeDist = 2200; this.treeCount = 700;
-    this.treeGeo = makeTreeGeometry();
+    this.treeGeo = makeTreeGeometry(false); this.treeGeoB = makeTreeGeometry(true);
     this.treeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
     this.frustum = new THREE.Frustum(); this.tmpM = new THREE.Matrix4(); this.sph = new THREE.Sphere();
     this.frameNo = 0; this.built = 0; this.rendered = [];
@@ -565,30 +572,31 @@ export class Terrain {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
     const snowLine = this.G.uSnowLine.value, upY = new THREE.Vector3(0, 1, 0);
     const tries = this.treeCount * 3;
+    const broad = Math.abs(this.frame.toLatLon(this.frame.mercToLocalX(n.minX), this.frame.mercToLocalZ(n.maxY)).lat) < 37;
     for (let t = 0; t < tries && mats.length < this.treeCount; t++) {
       const u = rnd(), v = rnd();
       const px = Math.min(255, Math.floor(ox + u * ss)), py = Math.min(255, Math.floor(oy + v * ss));
       const o = (py * 256 + px) * 4;
       const r = e.pixels[o], g = e.pixels[o + 1], b = e.pixels[o + 2];
       const lum = (r + g + b) / 3;
-      if (!(lum < 95 && lum > 8 && g >= r * 0.97 && g > b * 1.03)) continue;
+      if (!(lum < 88 && lum > 10 && g > r * 1.06 && g > b * 1.2)) continue;
       const h = n.heightUV(u, v);
       if (h < 1) continue;
       const hx = n.heightUV(u + 0.02, v) - n.heightUV(u - 0.02, v), hz = n.heightUV(u, v + 0.02) - n.heightUV(u, v - 0.02);
       const slope = Math.hypot(hx, hz) / (sizeL * 0.04);
       if (slope > 1.4) continue;
-      const th = 9 + rnd() * 17 * (lum < 50 ? 1.2 : 0.8);
+      const th = broad ? 8 + rnd() * 12 : 9 + rnd() * 17 * (lum < 50 ? 1.2 : 0.8);
       p.set(u * sizeL, h - 0.5, v * sizeL);
       q.setFromAxisAngle(upY, rnd() * 6.28);
-      const w = th * (0.55 + rnd() * 0.25);
+      const w = th * (broad ? 0.8 + rnd() * 0.4 : 0.55 + rnd() * 0.25);
       s.set(w, th, w);
       m.compose(p, q, s); mats.push(m.clone());
       const snow = clamp((h - snowLine + 200) / 400, 0, 1) * 0.75;
       const c = 0.75 + rnd() * 0.5;
-      cols.push([c * (1 - snow) + 5.5 * snow, c * (1 - snow) + 5.0 * snow, c * (1 - snow) + 5.2 * snow]);
+      cols.push([c * (1 - snow) + 16 * snow, c * (1 - snow) + 9 * snow, c * (1 - snow) + 19 * snow]);
     }
     if (!mats.length) return;
-    const im = new THREE.InstancedMesh(this.treeGeo, this.treeMat, mats.length);
+    const im = new THREE.InstancedMesh(broad ? this.treeGeoB : this.treeGeo, this.treeMat, mats.length);
     const col = new THREE.Color();
     mats.forEach((mm, i) => { im.setMatrixAt(i, mm); im.setColorAt(i, col.setRGB(...cols[i])); });
     im.instanceMatrix.needsUpdate = true; im.frustumCulled = false; im.visible = false;

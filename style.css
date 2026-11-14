@@ -119,3 +119,13 @@ kbd { font: 600 12px Inter; border: 1px solid var(--line); border-bottom-width: 
 @media (pointer: coarse) {
   #reticle { top: 50%; }
 }
+
+/* ---------- nomes de lugares no cenário ---------- */
+#labels { position: absolute; inset: 0; overflow: hidden; }
+.wl { position: absolute; left: 0; top: 0; white-space: nowrap; font: 600 12px/1.1 'Barlow Condensed', sans-serif; letter-spacing: .09em; text-transform: uppercase; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.6); padding-bottom: 14px; will-change: transform; transition: opacity .3s; }
+.wl::after { content: ''; position: absolute; left: 50%; bottom: 0; width: 1px; height: 11px; background: rgba(255,255,255,.7); }
+.wl-city { font-size: 17px; font-weight: 700; }
+.wl-town { font-size: 14px; font-weight: 700; }
+.wl-peak { color: #ffd9c2; }
+.wl-lake { color: #bfe3ff; font-style: italic; }
+.wl-neighbourhood, .wl-hamlet, .wl-isolated_dwelling, .wl-quarter { font-size: 11px; opacity: .85; }

@@ -18,22 +18,30 @@ export const WEATHER_PRESETS = {
   fog: { code: 45, cover: 70, temp: 6, rh: 99, vis: 600, wind: 3, windDir: 0, snow: 0 },
 };
 
+const HV = ['temperature_2m', 'relative_humidity_2m', 'weather_code', 'cloud_cover', 'wind_speed_10m', 'wind_direction_10m', 'visibility', 'snow_depth', 'precipitation'];
+// clima atual + previsão hora a hora (ontem até depois de amanhã), para o clima acompanhar o relógio do jogo
 export async function fetchWeather(lat, lon) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
-    `&current=temperature_2m,relative_humidity_2m,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m` +
-    `&hourly=visibility,snow_depth&forecast_days=1&timezone=auto`;
+    `&current=temperature_2m,relative_humidity_2m,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,precipitation` +
+    `&hourly=${HV.join(',')}&past_days=1&forecast_days=3&timeformat=unixtime&timezone=auto`;
   const r = await fetch(url);
   if (!r.ok) throw new Error('clima ' + r.status);
   const d = await r.json();
+  const h = d.hourly || {}, t = h.time || [];
+  const at = (i) => ({ code: h.weather_code?.[i] ?? 0, cover: h.cloud_cover?.[i] ?? 30, temp: h.temperature_2m?.[i] ?? 15, rh: h.relative_humidity_2m?.[i] ?? 60,
+    wind: h.wind_speed_10m?.[i] ?? 5, windDir: h.wind_direction_10m?.[i] ?? 0, vis: h.visibility?.[i] ?? 30000, snow: h.snow_depth?.[i] ?? 0, rain: h.precipitation?.[i] ?? 0 });
   const c = d.current || {};
-  let vis = 30000, snow = 0;
-  try {
-    const hour = (c.time || '').slice(0, 13);
-    const i = Math.max(0, d.hourly.time.findIndex((t) => t.slice(0, 13) === hour));
-    vis = d.hourly.visibility?.[i] ?? vis; snow = d.hourly.snow_depth?.[i] ?? 0;
-  } catch (e) { /* opcional */ }
-  return { code: c.weather_code ?? 0, cover: c.cloud_cover ?? 30, temp: c.temperature_2m ?? 15, rh: c.relative_humidity_2m ?? 60,
-    wind: c.wind_speed_10m ?? 5, windDir: c.wind_direction_10m ?? 0, vis, snow, utcOffset: d.utc_offset_seconds ?? null, tz: d.timezone_abbreviation || '' };
+  const nowI = Math.max(0, t.findIndex((x) => x * 1000 > Date.now()) - 1);
+  const cur = { ...at(nowI) };
+  if (c.weather_code != null) Object.assign(cur, { code: c.weather_code, cover: c.cloud_cover ?? cur.cover, temp: c.temperature_2m ?? cur.temp, rh: c.relative_humidity_2m ?? cur.rh, wind: c.wind_speed_10m ?? cur.wind, windDir: c.wind_direction_10m ?? cur.windDir, rain: c.precipitation ?? cur.rain });
+  return { ...cur, utcOffset: d.utc_offset_seconds ?? null, tz: d.timezone_abbreviation || '', elevation: d.elevation ?? 0,
+    // clima no instante `ms` (UTC). Fora da janela de previsão, repete o mesmo horário do dia mais próximo.
+    at(ms) {
+      if (!t.length) return cur;
+      let i = Math.round((ms / 1000 - t[0]) / 3600);
+      if (i < 0 || i >= t.length) { i = ((i % 24) + 24) % 24; i = Math.min(i + 24, t.length - 1); }
+      return at(i);
+    } };
 }
 
 let lastNom = 0;
@@ -49,8 +57,10 @@ export async function reverseGeocode(lat, lon, zoom = 10) {
   const d = await nominatim(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&zoom=${zoom}&accept-language=pt-BR`);
   if (d.error) return null;
   const a = d.address || {};
-  const name = a.city || a.town || a.village || a.hamlet || a.municipality || a.suburb || a.county || a.state_district || a.state || a.country || (d.name ?? '');
-  const parts = [a.county !== name ? a.county : null, a.state !== name ? a.state : null, a.country !== name ? a.country : null].filter(Boolean);
+  const city = a.city || a.town || a.village || a.municipality;
+  const local = zoom >= 14 ? (a.neighbourhood || a.suburb || a.quarter || a.city_district || a.hamlet) : null;
+  const name = local || city || a.hamlet || a.suburb || a.county || a.state_district || a.state || a.country || (d.name ?? '');
+  const parts = [local && city !== name ? city : null, !local && a.county !== name ? a.county : null, a.state !== name ? a.state : null, a.country !== name ? a.country : null].filter(Boolean);
   return { name, sub: parts.join(' · ') };
 }
 export async function searchPlaces(q) {

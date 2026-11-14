@@ -9,6 +9,7 @@ import { Avatar, Player, CameraRig } from './player.js';
 import { Effects } from './effects.js';
 import { Post } from './post.js';
 import { Buildings } from './buildings.js';
+import { World } from './world.js';
 import { WMO, WEATHER_PRESETS, fetchWeather, reverseGeocode, searchPlaces, Sound } from './services.js';
 
 const $ = (id) => document.getElementById(id);
@@ -34,7 +35,7 @@ const PLACES = [
 ];
 
 // ---------------- ajustes ----------------
-const DEFAULTS = { now: true, hour: 12, ts: '1', season: 'auto', weather: 'live', quality: matchMedia('(pointer: coarse)').matches ? 'media' : 'alta', img: 'esri', bld: true, snd: true, inv: false, blur: true, sens: 1 };
+const DEFAULTS = { now: true, hour: 12, ts: '1', season: 'auto', weather: 'live', quality: matchMedia('(pointer: coarse)').matches ? 'media' : 'alta', img: 'esri', bld: true, lbl: true, snd: true, inv: false, blur: true, sens: 1 };
 let S = { ...DEFAULTS };
 try { S = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('jdm-settings') || '{}') }; } catch (e) { /* sem storage */ }
 const saveS = () => { try { localStorage.setItem('jdm-settings', JSON.stringify(S)); } catch (e) { /* ok */ } };
@@ -74,6 +75,7 @@ const clouds = new Clouds(scene, G, frame);
 const precip = new Precip(scene);
 const effects = new Effects(scene);
 const buildings = new Buildings(scene, frame, terrain);
+const world = new World(scene, frame, terrain, G, camera);
 const avatar = new Avatar(); scene.add(avatar.root);
 const player = new Player();
 const rig = new CameraRig(camera);
@@ -85,12 +87,13 @@ scene.fog = new THREE.FogExp2(0x9fb3c8, 0.00002);
 
 function applyQuality() {
   terrain.setQuality(S.quality);
+  world.radius = S.quality === 'alta' ? 2 : 1;
   post.mat.uniforms.uSamples.value = S.quality === 'baixa' ? 1 : S.quality === 'media' ? 6 : 10;
   resize();
 }
 terrain.imgSrc = S.img;
 applyQuality();
-buildings.on = S.bld;
+buildings.on = false; world.on = S.bld; world.labelsOn = S.lbl;
 sound.setOn(S.snd);
 
 // ---------------- estado ----------------
@@ -100,7 +103,7 @@ let weather = { ...WEATHER_PRESETS.clear, live: false };
 let liveWeather = null, wxPos = null, wxT = -1e9;
 let place = { name: '', sub: '' }, geoPos = null, geoT = -1e9, geoBusy = false;
 let atmoT = 0, lightningT = 5, flash = 0, exposure = 1;
-let spawnGuard = 0;
+let spawnGuard = 0, spawnMin = 250;
 const env = { light: 1, humidity: 0.5, snowy: false, pr: 1 };
 const amb = [0.2, 0.25, 0.35], sunT = [1, 1, 1];
 
@@ -262,7 +265,8 @@ seg('set-quality', 'quality', () => { applyQuality(); });
 seg('set-img', 'img', (v) => { terrain.setImagery(v); globe.loadTextures(v); updateCredits(); });
 const chk = (id, key, fn) => { const el = $(id); el.checked = !!S[key]; el.onchange = () => { S[key] = el.checked; saveS(); fn?.(el.checked); }; };
 chk('set-now', 'now', (v) => { hourOffsetMs = 0; if (!v) setHour(S.hour); });
-chk('set-bld', 'bld', (v) => { buildings.on = v; if (!v) buildings.clear(); });
+chk('set-bld', 'bld', (v) => { world.on = v; if (!v) { buildings.on = false; buildings.clear(); } });
+chk('set-lbl', 'lbl', (v) => { world.labelsOn = v; });
 chk('set-snd', 'snd', (v) => sound.setOn(v));
 chk('set-inv', 'inv'); chk('set-blur', 'blur');
 $('set-sens').value = S.sens; $('set-sens').oninput = (e) => { S.sens = +e.target.value; saveS(); };
@@ -287,8 +291,13 @@ function setHour(h) {
 function fmtTime(ms) { const d = new Date(ms + utcOffsetSec() * 1000); return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0'); }
 
 // ---------------- clima ----------------
+let wxHour = -1, wxFresh = true;
 function applyWeather() {
-  if (S.weather === 'live') weather = liveWeather ? { ...liveWeather, live: true } : { ...WEATHER_PRESETS.clear, live: false };
+  const tNow = simUtc + hourOffsetMs;
+  const realtime = Math.abs(tNow - Date.now()) < 1800000;
+  wxHour = Math.floor(tNow / 3600000);
+  const prev = weather.desc;
+  if (S.weather === 'live') weather = liveWeather ? { ...liveWeather, ...(realtime ? {} : liveWeather.at(tNow)), live: true, forecast: !realtime } : { ...WEATHER_PRESETS.clear, live: false };
   else weather = { ...WEATHER_PRESETS[S.weather], live: false, utcOffset: liveWeather?.utcOffset };
   const w = WMO[weather.code] || WMO[0];
   weather.desc = w[0]; weather.precip = w[1]; weather.intensity = w[2];
@@ -300,17 +309,21 @@ function applyWeather() {
   weather.cov = cov;
   clouds.set(cov, weather.base, clamp((cov - 0.6) * 2, 0, 1) + (weather.intensity > 0 ? 0.3 : 0));
   globe.cloudMat.uniforms.uCover.value = cov;
+  if (playing && prev && prev !== weather.desc) toast('Clima: ' + weather.desc);
 }
 async function refreshWeather(lat, lon) {
   wxT = performance.now(); wxPos = { lat, lon };
+  const first = !liveWeather || wxFresh;
   try { liveWeather = await fetchWeather(lat, lon); } catch (e) { liveWeather = liveWeather || null; }
+  if (first && !S.now) setHour(S.hour); // agora que o fuso real do lugar é conhecido
+  wxFresh = false;
   applyWeather();
 }
 async function refreshPlace(lat, lon, alt) {
   if (geoBusy) return;
   geoBusy = true; geoT = performance.now(); geoPos = { lat, lon };
   try {
-    const zoom = alt > 150000 ? 3 : alt > 25000 ? 5 : alt > 6000 ? 8 : 10;
+    const zoom = alt > 150000 ? 3 : alt > 25000 ? 5 : alt > 6000 ? 8 : player.agl > 2500 ? 10 : 14;
     const r = await reverseGeocode(lat, lon, zoom);
     place = r || { name: alt > 150000 ? 'Órbita terrestre' : 'Oceano', sub: '' };
   } catch (e) { /* mantém */ }
@@ -325,17 +338,17 @@ async function go(p) {
   toggleMenu(false);
   if (isTouch) { try { await document.documentElement.requestFullscreen?.(); await screen.orientation?.lock?.('landscape'); } catch (e) { /* opcional */ } }
   frame.set(p.lat, p.lon);
-  terrain.reset(); buildings.clear(); effects.clear(); clouds.cellKey = '';
+  terrain.reset(); buildings.clear(); world.clear(); effects.clear(); clouds.cellKey = '';
   player.x = 0; player.z = 0;
   player.y = p.alt ?? 1500;
-  spawnGuard = p.alt == null ? 6 : 3;
+  spawnGuard = p.alt == null ? 8 : 5; spawnMin = p.alt == null ? 250 : 60;
   player.yaw = (p.hd || 0) * DEG; player.pitch = p.alt > 100000 ? 0 : -0.08;
   player.speed = p.spd ?? 90; player.mode = 'fly'; player.machPrev = player.mach;
   rig.off.set(0, 3, 9);
   place = { name: p.n, sub: p.s || '' };
   playing = true;
   if (!S.now) setHour(S.hour);
-  refreshWeather(p.lat, p.lon);
+  wxFresh = true; refreshWeather(p.lat, p.lon);
   geoT = performance.now() + 4000; geoPos = { lat: p.lat, lon: p.lon };
   toast(p.n);
 }
@@ -389,7 +402,7 @@ function loop() {
   if (spawnGuard > 0) {
     spawnGuard -= dt;
     const g = terrain.heightAt(player.x, player.z);
-    if (g.ok && g.z >= 9 && player.y < g.h + 250) player.y = g.h + 250;
+    if (g.ok && g.z >= 12 && player.y < g.h + spawnMin) player.y = g.h + spawnMin;
   }
   for (const ev of player.events) {
     if (ev === 'boom') { sound.boom(); effects.boom(player, player.forward(fwdV)); rig.shake = 0.6; toast('Barreira do som!'); }
@@ -433,7 +446,10 @@ function loop() {
   // clima
   if (playing && (performance.now() - wxT > 300000 || (wxPos && Math.hypot(pll.lat - wxPos.lat, (pll.lon - wxPos.lon) * Math.cos(pll.lat * DEG)) > 0.6))) refreshWeather(pll.lat, pll.lon);
   if (playing && performance.now() - geoT > 12000 && (!geoPos || Math.hypot(pll.lat - geoPos.lat, (pll.lon - geoPos.lon) * Math.cos(pll.lat * DEG)) > 0.03)) refreshPlace(pll.lat, pll.lon, camAlt);
+  if (Math.floor((simUtc + hourOffsetMs) / 3600000) !== wxHour) applyWeather();
   const below = 1 - smooth(weather.base + 300, weather.base + 1800, camAlt);
+  // temperatura no ar: cai ~6,5 °C por km acima da estação
+  env.tempAir = Math.max(weather.temp - 6.5 * (player.y - (liveWeather?.elevation ?? Math.max(player.ground, 0))) / 1000, -56.5);
   const precipOn = weather.precip === 'rain' || weather.precip === 'snow';
   const hazeW = weather.precip === 'fog' ? clamp(18000 / Math.max(weather.vis, 300), 4, 40) : weather.precip === 'snow' ? 6 : weather.precip === 'rain' ? 3.5 : 1 + weather.cov * 0.6;
   G.uHaze.value = lerp(1, hazeW, below) * (weather.vis < 10000 && weather.precip !== 'fog' ? 1.5 : 1);
@@ -480,12 +496,16 @@ function loop() {
   globe.update(ll.lat, ll.lon, camAlt);
   sky.update(camera);
   clouds.update(dt, C);
-  buildings.snowRoof = env.snowy;
-  buildings.update(C, camAlt - Math.max(player.ground, 0));
+  buildings.snowRoof = world.snowRoof = env.snowy;
+  // casas, água e nomes: OpenFreeMap; se indisponível, prédios pelo Overpass
+  if (world.failed && S.bld) buildings.on = true;
+  if (playing) { world.update(C, camAlt, camAlt - Math.max(player.ground, 0)); buildings.update(C, camAlt - Math.max(player.ground, 0)); }
+  world.night.value = night;
+  world.wMat.uniforms.uFrozen.value = lerp(world.wMat.uniforms.uFrozen.value, weather.temp < -6 && weather.snow > 0.05 ? 1 : 0, 0.02);
   const pAmt = precipOn && camAlt < weather.base + 400 ? weather.intensity : 0;
   const wd = (weather.windDir + 180) * DEG, ws = weather.wind / 3.6;
   player.forward(fwdV);
-  precip.update(dt, C, camAlt, weather.precip, pAmt, tmpV.set(Math.sin(wd) * ws * 0.5, 0, -Math.cos(wd) * ws * 0.5), fwdV.clone().multiplyScalar(Math.min(player.speed, 80)), env.light);
+  precip.update(dt, C, camAlt, weather.precip === 'rain' && env.tempAir < 0.5 ? 'snow' : weather.precip, pAmt, tmpV.set(Math.sin(wd) * ws * 0.5, 0, -Math.cos(wd) * ws * 0.5), fwdV.clone().multiplyScalar(Math.min(player.speed, 80)), env.light);
   sound.update(player.speed, Math.exp(-Math.max(player.y, 0) / 8500), player.boostAmt, pAmt);
 
   // raios
@@ -554,7 +574,8 @@ function updateHUD(ll, pll, camAlt, doy) {
   const ns = pll.lat >= 0 ? 'N' : 'S', ew = pll.lon >= 0 ? 'L' : 'O';
   $('loc-coord').textContent = `${Math.abs(pll.lat).toFixed(3)}° ${ns} ${Math.abs(pll.lon).toFixed(3)}° ${ew} · solo ${NUM.format(Math.round(player.ground))} m`;
   const t = fmtTime(simUtc + hourOffsetMs);
-  $('loc-wx').textContent = `${t} · ${seasonName(pll.lat, doy)} · ${Math.round(weather.temp)} °C · ${weather.desc || ''}${weather.live ? ' (ao vivo)' : ''} · vento ${Math.round(weather.wind)} km/h`;
+  const air = player.y > 90000 ? '' : ` · ${Math.round(env.tempAir)} °C no ar`;
+  $('loc-wx').textContent = `${t} · ${seasonName(pll.lat, doy)} · ${weather.desc || ''}${weather.live ? (weather.forecast ? ' (previsão)' : ' (ao vivo)') : ''} · ${Math.round(weather.temp)} °C no solo${air} · vento ${Math.round(weather.wind)} km/h · nuvens ${Math.round(weather.cover)}%`;
   // bússola
   const hd = ((player.yaw / DEG) % 360 + 360) % 360;
   const strip = $('compass-strip');
@@ -585,4 +606,4 @@ $('boot').textContent = 'Escolha um lugar para começar';
 loop();
 // posição inicial atrás do menu (cenário de fundo)
 frame.set(45.905, 6.86); player.y = 2600; player.yaw = 205 * DEG; player.speed = 0;
-window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe };
+window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe, buildings, world };

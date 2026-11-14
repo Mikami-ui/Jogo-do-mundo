@@ -20,6 +20,7 @@
 <canvas id="c"></canvas>
 
 <div id="hud" class="hidden">
+  <div id="labels"></div>
   <div id="reticle"></div>
   <div id="compass"><div id="compass-strip"></div><div id="compass-mark"></div></div>
   <div id="hint"></div>
@@ -64,7 +65,7 @@
     <div id="places" class="places"></div>
     <div class="start-foot">
       <button id="start-geo" class="ghost">📍 Minha localização</button>
-      <span class="credits">Relevo: Terrain Tiles (AWS/Mapzen) · Clima: Open-Meteo · Lugares e prédios: © OpenStreetMap · <span id="cred-img"></span></span>
+      <span class="credits">Relevo: Terrain Tiles (AWS/Mapzen) · Clima: Open-Meteo · Lugares, casas e água: © OpenStreetMap (OpenFreeMap) · <span id="cred-img"></span></span>
     </div>
   </div>
   <div id="boot">Carregando motor 3D…</div>
@@ -98,7 +99,8 @@
       <div class="row"><label>Qualidade gráfica</label><div class="ctl seg" id="set-quality" data-opts="baixa:Baixa,media:Média,alta:Alta"></div></div>
       <div class="row"><label>Imagens de satélite</label><div class="ctl seg" id="set-img" data-opts="esri:Esri (detalhada),s2:Sentinel-2"></div></div>
       <div class="row"><label>Opções</label><div class="ctl">
-        <label class="chk"><input type="checkbox" id="set-bld" checked> Prédios 3D (OpenStreetMap)</label>
+        <label class="chk"><input type="checkbox" id="set-bld" checked> Casas, prédios, lagos e rios 3D</label>
+        <label class="chk"><input type="checkbox" id="set-lbl" checked> Nomes de bairros, cidades e picos</label>
         <label class="chk"><input type="checkbox" id="set-snd" checked> Som</label>
         <label class="chk"><input type="checkbox" id="set-inv"> Inverter eixo vertical</label>
         <label class="chk"><input type="checkbox" id="set-blur" checked> Desfoque de velocidade</label>
@@ -118,7 +120,7 @@
         <div><kbd>T</kbd><span>Avançar 1 hora</span></div>
       </div>
       <p class="note">No celular: arraste o lado esquerdo da tela para pilotar, segure <b>TURBO</b> para acelerar e <b>FREIO</b> para parar, e toque em <b>SOLTAR</b> para planar. Arraste o lado direito para olhar ao redor.</p>
-      <p class="note">Fontes: relevo Terrain Tiles (Mapzen/AWS) · <span id="cred-img2"></span> · luzes noturnas NASA Black Marble · clima Open-Meteo · nomes e prédios © colaboradores do OpenStreetMap.</p>
+      <p class="note">Fontes: relevo Terrain Tiles (Mapzen/AWS) · <span id="cred-img2"></span> · luzes noturnas NASA Black Marble · clima Open-Meteo · nomes, casas, lagos e rios © colaboradores do OpenStreetMap (OpenFreeMap).</p>
     </div>
   </div>
 </div>

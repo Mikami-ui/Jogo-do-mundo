@@ -26,10 +26,11 @@ Abra o `index.html` por um servidor web (veja abaixo), escolha um lugar ou busqu
 
 - **Terreno real do planeta inteiro**: elevação Terrain Tiles (AWS/Mapzen) em quadtree com nível de detalhe, sobre uma esfera com o raio da Terra (curvatura real, horizonte, vista da órbita).
 - **Imagens de satélite** (Esri World Imagery ou Sentinel-2 cloudless) até ~1 m/pixel.
-- **Florestas 3D** geradas onde a imagem de satélite mostra mata, e **prédios 3D** do OpenStreetMap sobre o relevo.
+- **Mundo real do OpenStreetMap** (OpenFreeMap): **casas e prédios 3D** com telhados e janelas que acendem à noite, **lagos, rios e canais** com água refletindo o céu, e **nomes de bairros, cidades, picos e lagos** flutuando sobre o cenário.
+- **Florestas 3D** geradas onde a imagem de satélite mostra mata (pinheiros nas regiões frias, copas arredondadas nas quentes).
 - **Céu físico** (espalhamento Rayleigh + Mie): nascer/pôr do sol, crepúsculo, estrelas, céu negro e borda azul da atmosfera no espaço; neblina atmosférica real à distância.
 - **Sol na posição astronômica real** para a hora, a data e o lugar; luzes das cidades à noite vistas do espaço (NASA Black Marble).
-- **Clima ao vivo** (Open-Meteo): nuvens, chuva, neve, neblina, vento, trovoadas com raios — ou escolha o clima no menu.
+- **Clima ao vivo** (Open-Meteo): nuvens, chuva, neve, neblina, vento, trovoadas com raios, temperatura no solo e no ar (cai com a altitude). O clima **acompanha o relógio do jogo** pela previsão hora a hora: acelere o tempo e veja o tempo mudar — ou escolha o clima no menu.
 - **Estações do ano**: linha de neve pela latitude/altitude/época, neve real quando o clima indica, folhas de outono, vegetação de inverno.
 - **Física de voo arcade**: pairar, mergulhar, turbo exponencial, planeio de wingsuit, pouso, andar, correr e pular; colisão com o relevo e a água.
 - **Efeitos**: estrondo e anel da barreira do som, cone de vapor e onda de choque supersônica, rastros de vapor nas mãos, spray de neve/água/poeira rente ao chão, desfoque de velocidade, tremor de câmera e som procedural (vento, turbo, estrondo, trovão).
@@ -45,5 +46,5 @@ Para testar localmente: `python3 -m http.server` na pasta e abra `http://localho
 ## Créditos dos dados
 
 Relevo: Terrain Tiles (Mapzen / AWS Open Data) · Imagens: Esri, Maxar, Earthstar Geographics / Sentinel-2 cloudless © EOX (Copernicus) ·
-Luzes noturnas: NASA Black Marble (GIBS) · Clima: Open-Meteo · Nomes de lugares e prédios: © colaboradores do OpenStreetMap (Nominatim / Overpass) ·
+Luzes noturnas: NASA Black Marble (GIBS) · Clima: Open-Meteo · Nomes de lugares, prédios e água: © colaboradores do OpenStreetMap (OpenFreeMap / OpenMapTiles, Nominatim) ·
 Motor 3D: three.js.
