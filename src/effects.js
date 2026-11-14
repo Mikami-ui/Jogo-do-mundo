@@ -133,19 +133,20 @@ vec2 c = gl_PointCoord-0.5; float a = smoothstep(0.5, 0.0, length(c)); gl_FragCo
     this.pl[i] = life; this.pmax[i] = life;
     this.psz[i] = size; this.pgrow[i] = kind === 'water' ? size * 0.9 : 6;
     const c = kind === 'snow' ? [1, 1, 1.05] : kind === 'water' ? [0.85, 0.9, 0.95] : [0.55, 0.47, 0.38];
-    this.pcol[i * 4] = c[0]; this.pcol[i * 4 + 1] = c[1]; this.pcol[i * 4 + 2] = c[2];
+    const L = Math.max(this.light || 1, 0.05); // partículas iluminadas pela luz do momento (brancas de dia, escuras à noite)
+    this.pcol[i * 4] = c[0] * L; this.pcol[i * 4 + 1] = c[1] * L; this.pcol[i * 4 + 2] = c[2] * L;
   }
   burst(p, kind, n = 120, power = 1) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * 6.283, s = (5 + Math.random() * 25) * power;
       const w = kind === 'water';
-      this.emit(p.x, (w ? Math.max(p.waterLevel || 0, p.ground) : p.ground) + 0.5, p.z, Math.cos(a) * s * (w ? 0.5 : 1), (4 + Math.random() * 18) * power * (w ? 0.6 : 1), Math.sin(a) * s * (w ? 0.5 : 1), w ? 0.7 + Math.random() * 0.8 : 1.5 + Math.random() * 1.5, w ? 1 + Math.random() * 2 : 3 + Math.random() * 5, kind);
+      this.emit(p.x, (w ? Math.max(p.waterLevel || 0, p.ground) : p.ground) + 0.5, p.z, Math.cos(a) * s * (w ? 0.5 : 1), (4 + Math.random() * 18) * power * (w ? 0.6 : 1), Math.sin(a) * s * (w ? 0.5 : 1), w ? 0.7 + Math.random() * 0.8 : 1.5 + Math.random() * 1.5, w ? 0.3 + Math.random() * 0.6 : 3 + Math.random() * 5, kind);
     }
   }
   boom(p, f) { this.ringT = 0; this.ringPos = { x: p.x, y: p.y, z: p.z }; this.ringDir.copy(f); }
   clear() { this.trailL.clear(); this.trailR.clear(); this.pl.fill(0); }
   update(dt, p, C, camera, avatar, env) {
-    this.t += dt;
+    this.t += dt; this.light = env.light;
     const f = p.forward(new THREE.Vector3());
     const m = p.mach, rho = Math.exp(-Math.max(p.y, 0) / 8500);
     // rastros das mãos (avatar está em coordenadas relativas à câmera)

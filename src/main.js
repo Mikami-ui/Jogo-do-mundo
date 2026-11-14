@@ -548,7 +548,7 @@ function loop() {
   for (const ev of player.events) {
     if (ev === 'boom') { sound.boom(); effects.boom(player, player.forward(fwdV)); rig.shake = 0.6; toast('Barreira do som!'); }
     else if (ev === 'impact') { sound.impact(); effects.burst(player, env.snowy ? 'snow' : 'dust', 160, 1.2); rig.shake = 0.9; }
-    else if (ev === 'splash') { sound.impact(); effects.burst(player, 'water', 200, 1.3); rig.shake = 0.6; }
+    else if (ev === 'splash') { sound.impact(); effects.burst(player, 'water', 70, 1.1); rig.shake = 0.4; }
     else if (ev === 'release') { sound.whoosh(); toast('Planando'); }
     else if (ev === 'takeoff') { sound.whoosh(); toast('Voando'); }
     else if (ev === 'landing') toast('Pousando…');
@@ -672,7 +672,7 @@ function loop() {
   avatar.root.visible = rig.mode !== 2;
   if (player.mode === 'swim' && player.hspeed > 0.7 && Math.random() < 0.6) {
     const a = Math.random() * 6.28;
-    effects.emit(player.x + Math.cos(a) * 0.6, player.waterLevel + 0.15, player.z + Math.sin(a) * 0.6, Math.cos(a) * 1.5 - player.vx * 0.3, 1.5 + Math.random() * 2, Math.sin(a) * 1.5 - player.vz * 0.3, 0.6 + Math.random() * 0.5, 0.8 + Math.random(), 'water');
+    effects.emit(player.x + Math.cos(a) * 0.6, player.waterLevel + 0.15, player.z + Math.sin(a) * 0.6, Math.cos(a) * 1.5 - player.vx * 0.3, 1.5 + Math.random() * 2, Math.sin(a) * 1.5 - player.vz * 0.3, 0.5 + Math.random() * 0.5, 0.16 + Math.random() * 0.26, 'water');
   }
   env.pr = pixelRatio;
   effects.update(dt, player, C, camera, avatar, env);

@@ -168,11 +168,11 @@ export class Player {
     const b = world.buildingAt(x, z);
     let sea = !!g.water;
     if (sea) { const c = terrain.colorAt(x, z); if (c && c[0] > c[2] * 1.12 && c[0] + c[1] + c[2] > 300) sea = false; } // areia clara na foto: é praia
-    else if (g.ok && g.h < 5 && !lake) { // costa: o relevo às vezes marca o mar 1–4 m acima de zero; a foto azul-escura decide
+    else if (g.ok && g.h < 14 && !lake) { // costa: o relevo às vezes marca o mar 1–4 m acima de zero; a foto azul-escura decide
       const c = terrain.colorAt(x, z);
       if (c) { const l = (v) => (v / 255) ** 2.2, r = l(c[0]), gg = l(c[1]), bb = l(c[2]); if (bb > r * 2.2 && bb > gg * 0.85 && 0.21 * r + 0.72 * gg + 0.07 * bb < 0.22) sea = true; }
     }
-    return { ground: g.h, ok: g.ok, water: sea || !!lake, level: lake ? Math.max(lake.level ?? -1e9, g.h + 0.45) : g.water ? 0 : g.h, roof: b ? b.top : null };
+    return { ground: g.h, ok: g.ok, water: sea || !!lake, level: lake ? (lake.ocean ? Math.max(g.h, 0) : Math.max(lake.level ?? -1e9, g.h + 0.45)) : g.water ? 0 : g.h, roof: b ? b.top : null };
   }
   // move com colisão nas paredes; devolve true se bateu
   move(dt, terrain, world) {

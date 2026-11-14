@@ -164,7 +164,7 @@ void main(){
   // faixa de areia na beira-mar: clara e amarelada na foto → é chão, não água
   if (water && uHasTex > 0.5 && alb.r > alb.b * 1.12 && lum > 0.16) water = false;
   // mar e lagoas rasas que o relevo marca 1–4 m acima de zero: azul-escuro na foto → é água
-  else if (!water && uHasTex > 0.5 && vH < 5.0 && alb.b > alb.r * 2.2 && alb.b > alb.g * 0.85 && lum < 0.22) water = true;
+  else if (!water && uHasTex > 0.5 && vH < 40.0 && alb.b > alb.r * 2.2 && alb.b > alb.g * 0.85 && lum < 0.22) water = true;
   if (!water) {
     float green = clamp((alb.g - max(alb.r, alb.b)) * 12.0, 0.0, 1.0);
     // outono: folhas mudam de cor

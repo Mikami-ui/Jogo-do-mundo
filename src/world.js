@@ -227,18 +227,19 @@ export class World {
     if (W) {
       const s = sizeL / W.extent;
       for (const ft of W.features) {
-        if (ft.props.class === 'ocean' || ft.props.class === 'swimming_pool' || ft.props.intermittent === 1) continue;
+        if (ft.props.class === 'swimming_pool' || ft.props.intermittent === 1) continue;
+        const ocean = ft.props.class === 'ocean'; // o mar já é desenhado pelo terreno; aqui só serve para saber onde se nada
         for (const poly of toPolygons(ft.geom)) {
           const rings = [poly.outer, ...poly.holes].map((r) => r.map((p) => [clamp(p[0], -64, W.extent + 64) * s, clamp(p[1], -64, W.extent + 64) * s]));
           const flat = rings.flat();
           let tris = [];
-          try { tris = THREE.ShapeUtils.triangulateShape(rings[0].map((p) => new THREE.Vector2(p[0], p[1])), rings.slice(1).map((r) => r.map((p) => new THREE.Vector2(p[0], p[1])))); } catch (e) { /* ignora */ }
-          const lake = ft.props.class !== 'river';
+          if (!ocean) try { tris = THREE.ShapeUtils.triangulateShape(rings[0].map((p) => new THREE.Vector2(p[0], p[1])), rings.slice(1).map((r) => r.map((p) => new THREE.Vector2(p[0], p[1])))); } catch (e) { /* ignora */ }
+          const lake = ft.props.class !== 'river' && !ocean;
           let lvl = Infinity;
           if (lake) for (const p of rings[0]) lvl = Math.min(lvl, H(p[0], p[1]));
           let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
           for (const p of rings[0]) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < z0) z0 = p[1]; if (p[1] > z1) z1 = p[1]; }
-          (c.waterPolys ||= []).push({ x0, x1, z0, z1, rings, level: lake ? lvl + 0.7 : null });
+          (c.waterPolys ||= []).push({ x0, x1, z0, z1, rings, level: lake ? lvl + 0.7 : null, ocean });
           for (const tr of tris) for (const ii of tr) { const p = flat[ii]; if (!p) continue; wpos.push(p[0], (lake ? lvl : H(p[0], p[1])) + 0.7, p[1]); }
         }
       }
@@ -399,7 +400,7 @@ export class World {
     for (const w of c.waterPolys) {
       if (lx < w.x0 || lx > w.x1 || lz < w.z0 || lz > w.z1 || !inRing(w.rings[0], lx, lz)) continue;
       let hole = false; for (let i = 1; i < w.rings.length; i++) if (inRing(w.rings[i], lx, lz)) { hole = true; break; }
-      if (!hole) return { level: w.level };
+      if (!hole) return { level: w.level, ocean: w.ocean };
     }
     return null;
   }
