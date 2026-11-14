@@ -129,3 +129,41 @@ kbd { font: 600 12px Inter; border: 1px solid var(--line); border-bottom-width: 
 .wl-peak { color: #ffd9c2; }
 .wl-lake { color: #bfe3ff; font-style: italic; }
 .wl-neighbourhood, .wl-hamlet, .wl-isolated_dwelling, .wl-quarter { font-size: 11px; opacity: .85; }
+
+/* ---------- minimapa, objetivo e ponteiro ---------- */
+#minimap { position: absolute; left: calc(14px + var(--sal)); top: calc(38px + var(--sat)); width: 128px; height: 128px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.55); box-shadow: 0 2px 14px rgba(0,0,0,.45); pointer-events: auto; cursor: pointer; background: #10141b; }
+#goal { position: absolute; left: 50%; top: calc(42px + var(--sat)); transform: translateX(-50%); font: 700 15px 'Barlow Condensed', sans-serif; letter-spacing: .1em; background: rgba(10,12,18,.6); border: 1px solid rgba(255,106,26,.55); border-radius: 6px; padding: 5px 12px; white-space: nowrap; display: none; backdrop-filter: blur(4px); }
+#goal.show { display: block; }
+#toast { top: calc(84px + var(--sat)); }
+#wp { position: absolute; left: 0; top: 0; display: none; pointer-events: none; text-align: center; }
+#wp i { display: block; width: 0; height: 0; margin: 0 auto; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 16px solid var(--acc); filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
+#wp.on i { border: 2px solid var(--acc); width: 22px; height: 22px; transform: rotate(45deg) !important; border-radius: 3px; }
+#wp span { display: block; margin-top: 5px; font: 700 12px 'Barlow Condensed', sans-serif; letter-spacing: .08em; text-shadow: 0 1px 4px rgba(0,0,0,.9); }
+#flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 9; transition: opacity .35s; }
+/* ---------- mapa-múndi ---------- */
+#wmap-wrap { position: relative; height: min(52vh, 440px); border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+#wmap { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#wmap-zoom { position: absolute; right: 8px; top: 8px; display: grid; gap: 6px; }
+#wmap-zoom .ib { font-size: 20px; line-height: 1; }
+#wmap-act { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.act { background: var(--acc); border: 0; border-radius: 10px; padding: 10px 16px; font-weight: 600; color: #160a03; }
+/* ---------- desafios e personagem ---------- */
+.chal { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.stats div { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: rgba(255,255,255,.04); }
+.stats b { display: block; font: 700 21px 'Barlow Condensed', sans-serif; }
+.stats small { color: var(--dim); font-size: 11.5px; }
+.found { display: flex; flex-wrap: wrap; gap: 6px; }
+.found button { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; font-size: 12px; color: var(--dim); background: none; }
+.found button.ok { color: #160a03; background: #ffd21a; border-color: #ffd21a; font-weight: 600; }
+.sw button { width: 34px; height: 34px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); padding: 0; }
+.sw button.on { border-color: #fff; box-shadow: 0 0 0 2px var(--acc); }
+.fav-row { display: flex; gap: 6px; }
+.fav-row button:first-child { flex: 1; }
+.fav-row .del { flex: none; width: 40px; text-align: center; color: var(--dim); }
+@media (max-width: 720px), (max-height: 500px) {
+  #minimap { width: 92px; height: 92px; top: calc(30px + var(--sat)); }
+  #goal { font-size: 12px; top: calc(40px + var(--sat)); }
+  #toast { top: calc(72px + var(--sat)); font-size: 15px; }
+  #wmap-wrap { height: 58vh; }
+}

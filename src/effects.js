@@ -33,11 +33,11 @@ class Trail {
     scene.add(this.mesh); this.geo = g;
   }
   push(p) { this.pts.unshift(p); if (this.pts.length > this.n) this.pts.pop(); }
-  update(C, camPos, strength, light) {
+  update(C, camPos, strength, light, tint) {
     const P = this.pts, n = P.length;
     this.mesh.visible = n > 2 && strength > 0.01;
     if (!this.mesh.visible) return;
-    this.mat.uniforms.uCol.value.setRGB(light, light, light);
+    this.mat.uniforms.uCol.value.setRGB(light * tint.r, light * tint.g, light * tint.b);
     const side = new THREE.Vector3(), d = new THREE.Vector3(), v = new THREE.Vector3();
     for (let i = 0; i < this.n; i++) {
       const ii = Math.min(i, n - 1);
@@ -89,7 +89,7 @@ void main(){
 export class Effects {
   constructor(scene) {
     this.scene = scene;
-    this.trailL = new Trail(scene); this.trailR = new Trail(scene);
+    this.trailL = new Trail(scene); this.trailR = new Trail(scene); this.tint = new THREE.Color(1, 1, 1);
     // cone de vapor / choque
     const cg = new THREE.CylinderGeometry(0.15, 3.2, 7, 32, 8, true);
     cg.translate(0, -3.2, 0); cg.rotateX(-Math.PI / 2); // ponta na cabeça, abre para trás (+Z local)
@@ -152,7 +152,7 @@ vec2 c = gl_PointCoord-0.5; float a = smoothstep(0.5, 0.0, length(c)); gl_FragCo
     const str = vis ? clamp((p.speed - 90) / 200, 0, 1) * 0.6 * clamp(rho * 1.4, 0, 1) * (0.35 + env.humidity * 0.5) : 0;
     for (const [tr, h] of [[this.trailL, avatar.handL], [this.trailR, avatar.handR]]) {
       if (vis) tr.push({ x: h.x + C.x, y: h.y, z: h.z + C.z }); else tr.clear();
-      tr.update(C, camera.position, str, env.light);
+      tr.update(C, camera.position, str, env.light, this.tint);
     }
     // cone de choque/vapor
     const near1 = Math.exp(-((m - 1) ** 2) / 0.006);

@@ -10,6 +10,10 @@ import { Effects } from './effects.js';
 import { Post } from './post.js';
 import { Buildings } from './buildings.js';
 import { World } from './world.js';
+import { Landmarks } from './landmarks.js';
+import { Game, fmtTime as fmtDur } from './game.js';
+import { MiniMap, WorldMap } from './map.js';
+import { lonToMx, latToMy } from './geo.js';
 import { WMO, WEATHER_PRESETS, fetchWeather, reverseGeocode, searchPlaces, Sound } from './services.js';
 
 const $ = (id) => document.getElementById(id);
@@ -31,11 +35,15 @@ const PLACES = [
   { n: 'Islândia — Landmannalaugar', s: 'Montanhas coloridas e vulcões', lat: 63.99, lon: -19.06, alt: 1300, hd: 160, tag: 'ISLÂNDIA' },
   { n: 'Dubai', s: 'Burj Khalifa e o deserto', lat: 25.18, lon: 55.24, alt: 700, hd: 60, tag: 'EAU' },
   { n: 'Kilimanjaro', s: 'O teto da África', lat: -3.13, lon: 37.30, alt: 6200, hd: 0, tag: 'TANZÂNIA' },
+  { n: 'Paris', s: 'Torre Eiffel, o Sena e os bulevares', lat: 48.845, lon: 2.277, alt: 420, hd: 50, tag: 'FRANÇA' },
+  { n: 'Londres', s: 'Big Ben, London Eye e o Tâmisa', lat: 51.492, lon: -0.135, alt: 380, hd: 40, tag: 'REINO UNIDO' },
+  { n: 'Pirâmides de Gizé', s: 'Quéops, Quéfren e Miquerinos', lat: 29.962, lon: 31.118, alt: 420, hd: 40, tag: 'EGITO' },
+  { n: 'Tóquio', s: 'A maior metrópole do mundo', lat: 35.69, lon: 139.79, alt: 600, hd: 45, tag: 'JAPÃO' },
   { n: 'Órbita da Terra', s: 'Comece a 400 km de altitude', lat: -12, lon: -48, alt: 400000, hd: 90, spd: 7600, tag: 'ESPAÇO' },
 ];
 
 // ---------------- ajustes ----------------
-const DEFAULTS = { now: true, hour: 12, ts: '1', season: 'auto', weather: 'live', quality: matchMedia('(pointer: coarse)').matches ? 'media' : 'alta', img: 'esri', bld: true, lbl: true, snd: true, inv: false, blur: true, sens: 1 };
+const DEFAULTS = { now: true, hour: 12, ts: '1', season: 'auto', weather: 'live', quality: matchMedia('(pointer: coarse)').matches ? 'media' : 'alta', img: 'esri', suit: '#1c3f9e', acc: '#ff6a1a', helmet: '#eeeeee', trail: '#ffffff', bld: true, lbl: true, snd: true, inv: false, blur: true, sens: 1 };
 let S = { ...DEFAULTS };
 try { S = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('jdm-settings') || '{}') }; } catch (e) { /* sem storage */ }
 const saveS = () => { try { localStorage.setItem('jdm-settings', JSON.stringify(S)); } catch (e) { /* ok */ } };
@@ -97,7 +105,7 @@ buildings.on = false; world.on = S.bld; world.labelsOn = S.lbl;
 sound.setOn(S.snd);
 
 // ---------------- estado ----------------
-let playing = false, menuOpen = false;
+let playing = false, menuOpen = false, photoReq = false;
 let simUtc = Date.now(), hourOffsetMs = 0;
 let weather = { ...WEATHER_PRESETS.clear, live: false };
 let liveWeather = null, wxPos = null, wxT = -1e9;
@@ -123,6 +131,8 @@ window.addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyM' || e.code === 'Escape') { if (playing) toggleMenu(); }
   if (e.code === 'KeyC' && playing) toast(rig.next());
+  if (e.code === 'KeyP' && playing) photoReq = true;
+  if (e.code === 'KeyR' && playing && !menuOpen) game.startRings();
   if (e.code === 'KeyT' && playing) { hourOffsetMs += 3600000; toast('+1 hora'); }
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -330,6 +340,125 @@ async function refreshPlace(lat, lon, alt) {
   geoBusy = false;
 }
 
+// ---------------- desafios, mapa, fotos, favoritos e personagem ----------------
+const landmarks = new Landmarks(scene, frame, terrain, world);
+const wpEl = $('wp'), goalEl = $('goal');
+const game = new Game(scene, frame, terrain, player, camera, {
+  toast, sound: (k) => sound[k]?.(),
+  goal: (t) => { if (goalEl.textContent !== t) goalEl.textContent = t; goalEl.classList.toggle('show', !!t); },
+  pointer: (p, dist) => {
+    if (!p) { wpEl.style.display = 'none'; return; }
+    let x = p.x, y = p.y;
+    if (!p.on) { const m = Math.max(Math.abs(x) / 0.86, Math.abs(y) / 0.74, 1e-6); x /= m; y /= m; }
+    wpEl.style.display = 'block'; wpEl.classList.toggle('on', p.on);
+    wpEl.style.transform = `translate(${((x * 0.5 + 0.5) * innerWidth).toFixed(1)}px, ${((-y * 0.5 + 0.5) * innerHeight).toFixed(1)}px) translate(-50%, -50%)`;
+    wpEl.firstChild.style.transform = p.on ? '' : `rotate(${Math.atan2(x, y)}rad)`;
+    wpEl.lastChild.textContent = dist >= 1000 ? (dist / 1000).toFixed(dist >= 100000 ? 0 : 1) + ' km' : Math.round(dist) + ' m';
+  },
+});
+const mini = new MiniMap($('minimap'));
+const here = () => frame.toLatLon(player.x, player.z);
+let favs = [];
+try { favs = JSON.parse(localStorage.getItem('jdm-favs') || '[]'); } catch (e) { /* ok */ }
+const saveFavs = () => { try { localStorage.setItem('jdm-favs', JSON.stringify(favs)); } catch (e) { /* ok */ } };
+function renderFavs() {
+  const el = $('fav-list'); el.innerHTML = '';
+  if (!favs.length) el.innerHTML = '<button disabled>Nenhum favorito ainda.</button>';
+  favs.forEach((f, i) => {
+    const row = document.createElement('div'); row.className = 'fav-row';
+    const b = document.createElement('button'); b.textContent = `★ ${f.n} · ${Math.abs(f.lat).toFixed(2)}°${f.lat >= 0 ? 'N' : 'S'} ${Math.abs(f.lon).toFixed(2)}°${f.lon >= 0 ? 'L' : 'O'}`; b.onclick = () => go(f);
+    const d = document.createElement('button'); d.className = 'del'; d.textContent = '✕'; d.title = 'Remover'; d.onclick = () => { favs.splice(i, 1); saveFavs(); renderFavs(); };
+    row.append(b, d); el.appendChild(row);
+  });
+}
+$('fav-add').onclick = () => {
+  if (!playing) return;
+  const ll = here();
+  favs.unshift({ n: place.name || 'Lugar salvo', s: place.sub || '', lat: +ll.lat.toFixed(5), lon: +ll.lon.toFixed(5), alt: Math.round(player.y), hd: Math.round(player.yaw / DEG) });
+  favs = favs.slice(0, 30); saveFavs(); renderFavs(); toast('Lugar salvo nos favoritos');
+};
+// mapa-múndi
+let pick = null;
+const wmap = new WorldMap($('wmap'), (la, lo) => {
+  pick = { lat: la, lon: lo, name: `${Math.abs(la).toFixed(2)}°${la >= 0 ? 'N' : 'S'}, ${Math.abs(lo).toFixed(2)}°${lo >= 0 ? 'L' : 'O'}` };
+  $('wmap-act').classList.remove('hidden');
+  $('wmap-info').textContent = 'Ponto escolhido: ' + pick.name;
+  const p = pick;
+  reverseGeocode(la, lo, 10).then((r) => { if (r && pick === p) { p.name = r.name; $('wmap-info').textContent = `Ponto escolhido: ${r.name}${r.sub ? ' · ' + r.sub : ''}`; } }).catch(() => {});
+});
+wmap.marks = () => {
+  const ll = here(), out = [];
+  for (const L of landmarks.items) out.push({ type: 'lm', lat: L.lat, lon: L.lon, found: !!game.found[L.id] });
+  for (const f of favs) out.push({ type: 'fav', lat: f.lat, lon: f.lon });
+  if (game.dest) { const d = game.ll(game.dest); out.push({ type: 'dest', lat: d[0], lon: d[1] }); }
+  if (playing) out.push({ type: 'me', lat: ll.lat, lon: ll.lon, hd: player.yaw });
+  return out;
+};
+$('wmap-in').onclick = () => wmap.zoomBy(1); $('wmap-out').onclick = () => wmap.zoomBy(-1);
+$('wmap-me').onclick = () => { const ll = here(); wmap.center(ll.lat, ll.lon); };
+$('wmap-go').onclick = () => { if (pick) go({ n: pick.name, lat: pick.lat, lon: pick.lon, alt: null, hd: Math.round(player.yaw / DEG) }); };
+$('wmap-dest').onclick = () => { if (pick) { game.setDest(pick.name, lonToMx(pick.lon), latToMy(pick.lat)); toggleMenu(false); } };
+function openTab(name) { toggleMenu(true); document.querySelector(`.tabs button[data-tab="${name}"]`)?.click(); }
+$('minimap').onclick = () => { if (playing) openTab('mapa'); };
+// desafios
+function renderChallenges() {
+  $('ch-stop').classList.toggle('hidden', !game.mode);
+  const ll = here(), el = $('ch-races'); el.innerHTML = '';
+  const cs = world.cities().map((c) => { const p = frame.toLocal(...game.ll(c)); return { c, d: Math.hypot(p.x - player.x, p.z - player.z) }; }).filter((o) => o.d > 6000 && o.d < 500000).sort((a, b) => a.d - b.d).slice(0, 6);
+  if (!cs.length) el.innerHTML = '<button disabled>Nenhuma cidade carregada por perto ainda — voe um pouco e volte aqui.</button>';
+  for (const o of cs) { const b = document.createElement('button'); b.textContent = `Corrida até ${o.c.name} · ${Math.round(o.d / 1000)} km`; b.onclick = () => { game.startRace(o.c); toggleMenu(false); }; el.appendChild(b); }
+  const st = game.stats, n = (v) => Math.round(v).toLocaleString('pt-BR');
+  $('ch-stats').innerHTML = [
+    [n(st.maxSpeed * 3.6) + ' km/h', 'Velocidade máxima'], [st.maxAlt > 10000 ? n(st.maxAlt / 1000) + ' km' : n(st.maxAlt) + ' m', 'Altitude máxima'],
+    [n(st.km) + ' km', 'Distância voada'], [st.bestRings ? fmtDur(st.bestRings) : '—', `Melhor percurso de anéis (${st.ringsDone} feitos)`],
+    [st.bestRace ? n(st.bestRace) + ' km/h' : '—', `Melhor média em corrida (${st.racesDone} feitas)`],
+  ].map(([v, l]) => `<div><b>${v}</b><small>${l}</small></div>`).join('');
+  const fe = $('ch-found'); fe.innerHTML = '';
+  $('ch-found-n').textContent = `(${Object.keys(game.found).length}/${landmarks.items.length})`;
+  for (const L of landmarks.items) { const b = document.createElement('button'); b.textContent = (game.found[L.id] ? '✓ ' : '') + L.name; b.className = game.found[L.id] ? 'ok' : ''; b.title = 'Ir até lá'; b.onclick = () => go({ n: L.name, lat: L.lat - 0.007, lon: L.lon, alt: null, hd: 0 }); fe.appendChild(b); }
+}
+$('ch-rings').onclick = () => { if (playing) { game.startRings(); toggleMenu(false); } };
+$('ch-stop').onclick = () => { game.stop(); renderChallenges(); };
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
+  if (b.dataset.tab === 'mapa') requestAnimationFrame(() => { const ll = here(); wmap.center(ll.lat, ll.lon, wmap.zoom < 4 ? 8 : wmap.zoom); });
+  if (b.dataset.tab === 'desafios') renderChallenges();
+  if (b.dataset.tab === 'lugares') renderFavs();
+}));
+renderFavs();
+// personagem
+function applyLook() { avatar.setColors(S.suit, S.acc, S.helmet); effects.tint.set(S.trail); document.documentElement.style.setProperty('--acc', S.acc === '#ffffff' ? '#ff6a1a' : S.acc); }
+document.querySelectorAll('.sw').forEach((el) => {
+  const key = el.dataset.key;
+  for (const c of el.dataset.opts.split(',')) {
+    const b = document.createElement('button'); b.style.background = c; b.classList.toggle('on', S[key] === c); b.setAttribute('aria-label', c);
+    b.onclick = () => { S[key] = c; saveS(); el.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); applyLook(); };
+    el.appendChild(b);
+  }
+});
+applyLook();
+// fotos
+$('btn-photo').onclick = () => { if (playing) photoReq = true; };
+function takePhoto() {
+  const c2 = document.createElement('canvas'); c2.width = canvas.width; c2.height = canvas.height;
+  const x = c2.getContext('2d'); x.drawImage(canvas, 0, 0);
+  const s = c2.height / 720, ll = here();
+  const g = x.createLinearGradient(0, c2.height - 120 * s, 0, c2.height); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.6)');
+  x.fillStyle = g; x.fillRect(0, c2.height - 120 * s, c2.width, 120 * s);
+  x.fillStyle = '#fff'; x.textBaseline = 'alphabetic';
+  x.font = `700 ${26 * s}px 'Barlow Condensed', sans-serif`; x.fillText((place.name || 'Terra').toUpperCase(), 22 * s, c2.height - 42 * s);
+  x.font = `400 ${13 * s}px Inter, sans-serif`; x.globalAlpha = 0.85;
+  x.fillText(`${Math.abs(ll.lat).toFixed(3)}° ${ll.lat >= 0 ? 'N' : 'S'}  ${Math.abs(ll.lon).toFixed(3)}° ${ll.lon >= 0 ? 'L' : 'O'}  ·  ${Math.round(player.y).toLocaleString('pt-BR')} m  ·  ${Math.round(player.speed * 3.6).toLocaleString('pt-BR')} km/h  ·  ${fmtTime2()}  ·  ${weather.desc || ''} ${Math.round(weather.temp)} °C`, 22 * s, c2.height - 20 * s);
+  x.textAlign = 'right'; x.font = `700 ${14 * s}px 'Barlow Condensed', sans-serif`; x.fillText('JOGO DO MUNDO', c2.width - 22 * s, c2.height - 20 * s);
+  c2.toBlob((b) => {
+    if (!b) return;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `jogo-do-mundo-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.jpg`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+  }, 'image/jpeg', 0.92);
+  const fl = $('flash'); fl.style.transition = 'none'; fl.style.opacity = 0.8; requestAnimationFrame(() => { fl.style.transition = ''; fl.style.opacity = 0; });
+  toast('Foto salva'); game.stats.photos = (game.stats.photos || 0) + 1;
+}
+const fmtTime2 = () => fmtTime(simUtc + hourOffsetMs);
+
 // ---------------- teletransporte ----------------
 async function go(p) {
   sound.init();
@@ -338,7 +467,7 @@ async function go(p) {
   toggleMenu(false);
   if (isTouch) { try { await document.documentElement.requestFullscreen?.(); await screen.orientation?.lock?.('landscape'); } catch (e) { /* opcional */ } }
   frame.set(p.lat, p.lon);
-  terrain.reset(); buildings.clear(); world.clear(); effects.clear(); clouds.cellKey = '';
+  terrain.reset(); buildings.clear(); world.clear(); effects.clear(); clouds.cellKey = ''; game.stop(true);
   player.x = 0; player.z = 0;
   player.y = p.alt ?? 1500;
   spawnGuard = p.alt == null ? 8 : 5; spawnMin = p.alt == null ? 250 : 60;
@@ -422,7 +551,7 @@ function loop() {
     player.x = 0; player.z = 0;
     for (const tr of [effects.trailL, effects.trailR]) for (const p of tr.pts) { p.x -= ox; p.z -= oz; }
     for (let i = 0; i < effects.NP; i++) { effects.pw[i * 3] -= ox; effects.pw[i * 3 + 2] -= oz; }
-    effects.ringPos.x -= ox; effects.ringPos.z -= oz;
+    effects.ringPos.x -= ox; effects.ringPos.z -= oz; game.shift(ox, oz);
   }
 
   const C = rig.update(dt, player, terrain, inp.look);
@@ -531,6 +660,9 @@ function loop() {
   avatar.root.visible = !(rig.mode === 2 && player.mode !== 'walk');
   env.pr = pixelRatio;
   effects.update(dt, player, C, camera, avatar, env);
+  landmarks.update(C);
+  game.update(dt, C, landmarks, playing && !menuOpen);
+  if (playing) mini.draw(dt, pll.lat, pll.lon, player.yaw, Math.max(player.agl, 0), game.dest ? game.ll(game.dest) : null);
 
   // pós
   const sp = player.speed;
@@ -552,6 +684,7 @@ function loop() {
   post.mat.uniforms.uVig.value = 0.3;
 
   post.render(scene, camera);
+  if (photoReq) { photoReq = false; takePhoto(); }
 
   // HUD
   hudT -= dt; toastT -= dt;
@@ -607,4 +740,4 @@ $('boot').textContent = 'Escolha um lugar para começar';
 loop();
 // posição inicial atrás do menu (cenário de fundo)
 frame.set(45.905, 6.86); player.y = 2600; player.yaw = 205 * DEG; player.speed = 0;
-window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe, buildings, world };
+window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe, buildings, world, game, landmarks, openTab, takePhoto: () => { photoReq = true; } };

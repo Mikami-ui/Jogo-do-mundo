@@ -17,7 +17,10 @@ Abra o `index.html` por um servidor web (veja abaixo), escolha um lugar ou busqu
 | Virar | `←` `→` / `A` `D` | joystick (lado esquerdo) |
 | Subir / descer | `↑` `↓` / mouse (clique na tela) | joystick |
 | Pular / andar no chão | `Espaço` / `↑` | joystick |
-| Trocar câmera | `C` | botão 📷 |
+| Trocar câmera | `C` | botão do olho |
+| Tirar foto | `P` | botão da câmera |
+| Percurso de anéis | `R` | menu → Desafios |
+| Abrir o mapa | menu → Mapa | toque no minimapa |
 | Olhar ao redor | — | arrastar o lado direito |
 | Menu (lugares, hora, estação, clima, qualidade) | `M` / `Esc` | botão ☰ |
 | Avançar 1 hora | `T` | menu → Ajustes |
@@ -27,6 +30,13 @@ Abra o `index.html` por um servidor web (veja abaixo), escolha um lugar ou busqu
 - **Terreno real do planeta inteiro**: elevação Terrain Tiles (AWS/Mapzen) em quadtree com nível de detalhe, sobre uma esfera com o raio da Terra (curvatura real, horizonte, vista da órbita).
 - **Imagens de satélite** (Esri World Imagery ou Sentinel-2 cloudless) até ~1 m/pixel.
 - **Mundo real do OpenStreetMap** (OpenFreeMap): **casas e prédios 3D** com telhados e janelas que acendem à noite, **lagos, rios e canais** com água refletindo o céu, e **nomes de bairros, cidades, picos e lagos** flutuando sobre o cenário.
+- **Ruas, estradas, pontes e trilhos em 3D**, com asfalto e faixas pintadas, acompanhando o relevo.
+- **Monumentos famosos** modelados nas coordenadas reais: Cristo Redentor, Torre Eiffel, Estátua da Liberdade, Big Ben, London Eye, Burj Khalifa, Pirâmides de Gizé, Taj Mahal, Empire State, CN Tower, Tokyo Skytree, Monumento a Washington e Gateway Arch.
+- **Desafios**: percurso de 12 anéis contra o relógio (`R`), corridas até as cidades reais ao redor, destino marcado no mapa com feixe de luz, recordes (velocidade, altitude, distância) e monumentos para descobrir.
+- **Minimapa e mapa-múndi**: toque no minimapa para abrir o mapa, arraste e aproxime, escolha um ponto e voe para lá ou marque como destino.
+- **Fotos** (`P` ou botão da câmera): salva a imagem do voo com a legenda do lugar.
+- **Favoritos**: salve lugares para voltar depois.
+- **Personagem**: cores do traje, dos detalhes, do capacete e do rastro de vapor.
 - **Florestas 3D** geradas onde a imagem de satélite mostra mata (pinheiros nas regiões frias, copas arredondadas nas quentes).
 - **Céu físico** (espalhamento Rayleigh + Mie): nascer/pôr do sol, crepúsculo, estrelas, céu negro e borda azul da atmosfera no espaço; neblina atmosférica real à distância.
 - **Sol na posição astronômica real** para a hora, a data e o lugar; luzes das cidades à noite vistas do espaço (NASA Black Marble).

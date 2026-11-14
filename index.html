@@ -23,6 +23,9 @@
   <div id="labels"></div>
   <div id="reticle"></div>
   <div id="compass"><div id="compass-strip"></div><div id="compass-mark"></div></div>
+  <div id="goal"></div>
+  <div id="wp"><i></i><span></span></div>
+  <canvas id="minimap" title="Abrir mapa"></canvas>
   <div id="hint"></div>
   <div id="toast"></div>
   <div id="loc">
@@ -38,7 +41,8 @@
   </div>
   <div id="loading"></div>
   <div id="topbar">
-    <button id="btn-cam" class="ib" title="Câmera (C)" aria-label="Trocar câmera"><svg viewBox="0 0 24 24"><path d="M4 7h3l2-2h6l2 2h3v12H4z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+    <button id="btn-photo" class="ib" title="Tirar foto (P)" aria-label="Tirar foto"><svg viewBox="0 0 24 24"><path d="M4 7h3l2-2h6l2 2h3v12H4z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+    <button id="btn-cam" class="ib" title="Trocar câmera (C)" aria-label="Trocar câmera"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
     <button id="btn-menu" class="ib" title="Menu (M)" aria-label="Abrir menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
   </div>
   <div id="touch" class="hidden">
@@ -51,6 +55,7 @@
   </div>
 </div>
 
+<div id="flash"></div>
 <div id="start">
   <div class="start-inner">
     <div class="brand"><span class="dot"></span>SIMULADOR DA TERRA</div>
@@ -76,6 +81,9 @@
     <div class="menu-head">
       <div class="tabs">
         <button data-tab="lugares" class="on">Lugares</button>
+        <button data-tab="mapa">Mapa</button>
+        <button data-tab="desafios">Desafios</button>
+        <button data-tab="personagem">Personagem</button>
         <button data-tab="ajustes">Ajustes</button>
         <button data-tab="controles">Controles</button>
       </div>
@@ -87,7 +95,42 @@
         <button id="menu-go">Buscar</button>
       </div>
       <div id="menu-results" class="results"></div>
+      <div class="label">Meus favoritos</div>
+      <button id="fav-add" class="ghost">★ Salvar o lugar onde estou</button>
+      <div id="fav-list" class="results"></div>
+      <div class="label">Lugares em destaque</div>
       <div id="menu-places" class="places"></div>
+    </div>
+    <div class="tab hidden" id="tab-mapa">
+      <div id="wmap-wrap">
+        <canvas id="wmap"></canvas>
+        <div id="wmap-zoom"><button id="wmap-in" class="ib">+</button><button id="wmap-out" class="ib">−</button><button id="wmap-me" class="ib" title="Centralizar em mim">◎</button></div>
+      </div>
+      <div id="wmap-info" class="note">Arraste para mover, use dois dedos ou a roda do mouse para aproximar. Toque num ponto para escolher um destino.</div>
+      <div id="wmap-act" class="hidden">
+        <button id="wmap-go" class="act">Voar para cá agora</button>
+        <button id="wmap-dest" class="ghost">Marcar como destino</button>
+      </div>
+    </div>
+    <div class="tab hidden" id="tab-desafios">
+      <div class="label" style="margin-top:4px">Desafios</div>
+      <div class="chal">
+        <button id="ch-rings" class="place"><span class="tag">TEMPO</span><b>Percurso de anéis</b><small>12 anéis à sua frente, acompanhando o relevo. Passe por todos no menor tempo.</small></button>
+        <button id="ch-stop" class="place hidden"><span class="tag">ATIVO</span><b>Encerrar desafio</b><small>Cancela o desafio ou o destino atual.</small></button>
+      </div>
+      <div class="label">Corrida até uma cidade</div>
+      <div id="ch-races" class="results"></div>
+      <div class="label">Recordes</div>
+      <div id="ch-stats" class="stats"></div>
+      <div class="label">Monumentos descobertos <span id="ch-found-n"></span></div>
+      <div id="ch-found" class="found"></div>
+    </div>
+    <div class="tab hidden" id="tab-personagem">
+      <div class="row"><label>Cor do traje</label><div class="ctl sw" id="sw-suit" data-key="suit" data-opts="#1c3f9e,#b3202a,#1b1d24,#1f7a4a,#5b2a9e,#d9dde3,#d9a514,#0f8f9e"></div></div>
+      <div class="row"><label>Detalhes e luzes</label><div class="ctl sw" id="sw-acc" data-key="acc" data-opts="#ff6a1a,#19d3ff,#9dff2a,#ff3d9a,#ffffff,#ffd21a,#ff2a2a"></div></div>
+      <div class="row"><label>Capacete</label><div class="ctl sw" id="sw-helmet" data-key="helmet" data-opts="#eeeeee,#20232b,#c9a227,#b3202a,#1c3f9e"></div></div>
+      <div class="row"><label>Rastro de vapor</label><div class="ctl sw" id="sw-trail" data-key="trail" data-opts="#ffffff,#ff6a1a,#19d3ff,#ff3d9a,#9dff2a,#ffd21a"></div></div>
+      <p class="note">As cores mudam na hora — feche o menu para ver o personagem.</p>
     </div>
     <div class="tab hidden" id="tab-ajustes">
       <div class="row"><label>Hora do dia</label>
@@ -117,6 +160,8 @@
         <div><kbd>Espaço</kbd><span>Pular (no chão) · voltar a voar (planando)</span></div>
         <div><kbd>C</kbd><span>Trocar câmera</span></div>
         <div><kbd>M</kbd> / <kbd>Esc</kbd><span>Menu</span></div>
+        <div><kbd>P</kbd><span>Tirar foto</span></div>
+        <div><kbd>R</kbd><span>Começar percurso de anéis</span></div>
         <div><kbd>T</kbd><span>Avançar 1 hora</span></div>
       </div>
       <p class="note">No celular: arraste o lado esquerdo da tela para pilotar, segure <b>TURBO</b> para acelerar e <b>FREIO</b> para parar, e toque em <b>SOLTAR</b> para planar. Arraste o lado direito para olhar ao redor.</p>

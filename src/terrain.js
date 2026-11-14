@@ -602,7 +602,9 @@ export class Terrain {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
     const snowLine = this.G.uSnowLine.value, upY = new THREE.Vector3(0, 1, 0);
     const tries = this.treeCount * 3;
-    const broad = Math.abs(this.frame.toLatLon(this.frame.mercToLocalX(n.minX), this.frame.mercToLocalZ(n.maxY)).lat) < 37;
+    const alat = Math.abs(this.frame.toLatLon(this.frame.mercToLocalX(n.minX), this.frame.mercToLocalZ(n.maxY)).lat);
+    // pinheiros só no frio: latitudes altas ou montanha; no resto, copas arredondadas
+    const broad = alat < 37 || (alat < 57 && n.minH < 750);
     for (let t = 0; t < tries && mats.length < this.treeCount; t++) {
       const u = rnd(), v = rnd();
       const px = Math.min(255, Math.floor(ox + u * ss)), py = Math.min(255, Math.floor(oy + v * ss));

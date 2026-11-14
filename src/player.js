@@ -61,10 +61,24 @@ export class Avatar {
     this.wing.frustumCulled = false;
     B.add(this.wing);
     this.B = B;
-    this.root.traverse((o) => { if (o.isMesh) { o.castShadow = false; } });
+    // materiais agrupados por papel, para personalizar as cores
+    this.parts = { suit: [], suit2: [], acc: [], helmet: [] };
+    this.root.traverse((o) => {
+      if (!o.isMesh || !o.material.color) return;
+      const hex = o.material.color.getHex();
+      if (hex === SUIT) this.parts.suit.push(o.material); else if (hex === SUIT2) this.parts.suit2.push(o.material);
+      else if (hex === ACC) this.parts.acc.push(o.material); else if (hex === SKIN) this.parts.helmet.push(o.material);
+    });
     this.t = 0; this.fly = 1; this.walkPhase = 0;
     this.tmp = new THREE.Vector3(); this.inv = new THREE.Matrix4();
     this.handL = new THREE.Vector3(); this.handR = new THREE.Vector3();
+  }
+  setColors(suit, acc, helmet) {
+    const c = new THREE.Color(suit);
+    for (const m of this.parts.suit) m.color.copy(c);
+    for (const m of this.parts.suit2) m.color.copy(c).multiplyScalar(0.5);
+    for (const m of this.parts.acc) { m.color.set(acc); if (m.emissive) m.emissive.set(acc); }
+    for (const m of this.parts.helmet) m.color.set(helmet);
   }
   // pose: fly (0..1), spread (abertura do wingsuit), walk speed, boost
   animate(dt, s) {
