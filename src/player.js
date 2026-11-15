@@ -145,6 +145,7 @@ export class Player {
     this.boost = 1; this.agl = 1000; this.ground = 0; this.onWater = false; this.waterLevel = 0;
     this.onGround = false; this.hover = true; this.landing = false; this.landT = 0; this.t = 0;
     this.events = []; this.boostAmt = 0; this.machPrev = 0;
+    this.phys = null; this.pfloor = -Infinity;
     this.dir = new THREE.Vector3(0, 0, -1); this.L = new THREE.Vector3(); this.tmp = new THREE.Vector3();
   }
   forward(out) {
@@ -165,28 +166,30 @@ export class Player {
   probe(terrain, world, x, z) {
     const g = terrain.heightAt(x, z);
     const lake = world.waterAt(x, z);
-    const b = world.buildingAt(x, z);
     let sea = !!g.water;
     if (sea) { const c = terrain.colorAt(x, z); if (c && c[0] > c[2] * 1.12 && c[0] + c[1] + c[2] > 300) sea = false; } // areia clara na foto: é praia
     else if (g.ok && g.h < 14 && !lake) { // costa: o relevo às vezes marca o mar 1–4 m acima de zero; a foto azul-escura decide
       const c = terrain.colorAt(x, z);
       if (c) { const l = (v) => (v / 255) ** 2.2, r = l(c[0]), gg = l(c[1]), bb = l(c[2]); if (bb > r * 2.2 && bb > gg * 0.85 && 0.21 * r + 0.72 * gg + 0.07 * bb < 0.22) sea = true; }
     }
-    return { ground: g.h, ok: g.ok, water: sea || !!lake, level: lake ? (lake.ocean ? Math.max(g.h, 0) : Math.max(lake.level ?? -1e9, g.h + 0.45)) : g.water ? 0 : g.h, roof: b ? b.top : null };
+    return { ground: g.h, ok: g.ok, water: sea || !!lake, level: lake ? (lake.ocean ? Math.max(g.h, 0) : Math.max(lake.level ?? -1e9, g.h + 0.45)) : g.water ? 0 : g.h, surf: world.surfaceAt(x, z) };
   }
-  // move com colisão nas paredes; devolve true se bateu
-  move(dt, terrain, world) {
-    const nx = this.x + this.vx * dt, nz = this.z + this.vz * dt;
+  // piso sob os pés: terreno, pista/calçada/ponte e topo de objetos sólidos (telhado, pedra, banco, muro)
+  floorOf(e, feet) {
+    let floor = e.ground + 1;
+    if (e.surf && feet >= e.surf.y - 0.9) floor = Math.max(floor, e.surf.y + 1);
+    if (this.pfloor > -1e8 && feet >= this.pfloor - 0.5) floor = Math.max(floor, this.pfloor + 1);
+    return floor;
+  }
+  // move o cilindro do jogador (raio 34 cm) resolvendo a colisão: é empurrado para fora do obstáculo e perde só a
+  // parte da velocidade que entra nele, então desliza em paredes e quinas. step = degrau que sobe sozinho.
+  move(dt, step) {
     const feet = this.y - 1;
-    const blocked = (x, z) => { const b = world.buildingAt(x, z); return b && feet < b.top - 0.6; };
-    // já está dentro de uma construção (ela carregou depois): sobe para o telhado em vez de ficar preso
-    const inside = world.buildingAt(this.x, this.z);
-    if (inside && feet < inside.top - 0.6) { this.y = inside.top + 1.05; this.vy = 0; this.x = nx; this.z = nz; return false; }
-    if (!blocked(nx, nz)) { this.x = nx; this.z = nz; return false; }
-    if (!blocked(nx, this.z)) { this.x = nx; this.vz *= 0.2; }
-    else if (!blocked(this.x, nz)) { this.z = nz; this.vx *= 0.2; }
-    else { this.vx *= 0.1; this.vz *= 0.1; }
-    return true;
+    if (!this.phys) { this.x += this.vx * dt; this.z += this.vz * dt; this.pfloor = -Infinity; return false; }
+    const r = this.phys.resolve(this.x + this.vx * dt, this.z + this.vz * dt, 0.34, feet + 0.02, feet + 1.8, step);
+    this.x = r.x; this.z = r.z; this.pfloor = r.floor;
+    if (r.hit) { const d = this.vx * r.nx + this.vz * r.nz; if (d < 0) { this.vx -= r.nx * d; this.vz -= r.nz * d; } }
+    return r.hit;
   }
   toggleFly() {
     if (this.mode === 'fly') { this.landing = !this.landing; if (this.landing) this.events.push('landing'); }
@@ -225,11 +228,11 @@ export class Player {
       }
       const acc = 1 - Math.exp(-dt * (swim ? 3 : this.onGround ? 11 : 2.2));
       this.vx += (tx - this.vx) * acc; this.vz += (tz - this.vz) * acc;
-      if (this.move(dt, terrain, world) && this.hspeed > 8) this.events.push('bonk');
+      const v0 = this.hspeed;
+      if (this.move(dt, 0.45) && v0 > 8 && this.hspeed < v0 * 0.6 && this.t - (this.bonkT || 0) > 0.5) { this.bonkT = this.t; this.events.push('bonk'); }
       const e = this.probe(terrain, world, this.x, this.z);
       const feet = this.y - 1;
-      let floor = e.ground + 1;
-      if (e.roof != null && feet >= e.roof - 0.6) floor = Math.max(floor, e.roof + 1);
+      const floor = this.floorOf(e, feet);
       if (swim) {
         if (!e.water) { this.mode = 'walk'; this.y = Math.max(this.y, floor); this.vy = 0; this.onGround = true; this.events.push('land'); }
         else {
@@ -296,11 +299,10 @@ export class Player {
       this.speed = s; this.hover = !flight; this.onGround = false;
       const py = this.y;
       // parede: em voo rápido quica para cima; pairando só desliza (dá para subir rente à parede)
-      if (this.move(dt, terrain, world) && flight) { if (s > 20) this.events.push('impact'); s *= 0.25; this.speed = s; d.y = Math.abs(d.y) + 0.3; d.normalize(); this.vx = d.x * s; this.vz = d.z * s; this.vy = d.y * s; }
+      if (this.move(dt, 0) && flight && s > 12) { if (s > 20) this.events.push('impact'); s *= 0.25; this.speed = s; d.y = Math.abs(d.y) + 0.3; d.normalize(); this.vx = d.x * s; this.vz = d.z * s; this.vy = d.y * s; }
       this.y += this.vy * dt;
       const e = this.probe(terrain, world, this.x, this.z);
-      let floor = e.ground + 1;
-      if (e.roof != null && py - 1 >= e.roof - 0.6) floor = Math.max(floor, e.roof + 1);
+      const floor = this.floorOf(e, py - 1);
       if (e.water && this.y < e.level + 1.0 && floor <= e.level + 1.1) {
         if (s < 18 || this.landing) { this.mode = 'swim'; this.landing = false; this.events.push('splash'); this.vy = 0; }
         else { if (this.vy < -15) this.events.push('splash'); this.y = e.level + 1.0; d.y = Math.max(d.y, 0.03); d.normalize(); }
@@ -324,11 +326,10 @@ export class Player {
       this.vx = d.x * s; this.vy = d.y * s; this.vz = d.z * s;
       this.roll = lerp(this.roll, -inp.mx * 0.7, 1 - Math.exp(-dt * 4));
       const py = this.y;
-      const hit = this.move(dt, terrain, world);
+      const hit = this.move(dt, 0);
       this.y += this.vy * dt;
       const e = this.probe(terrain, world, this.x, this.z);
-      let floor = e.ground + 1;
-      if (e.roof != null && py - 1 >= e.roof - 0.6) floor = Math.max(floor, e.roof + 1);
+      const floor = this.floorOf(e, py - 1);
       if (turbo || inp.jump()) { this.mode = 'fly'; this.hover = false; this.events.push('takeoff'); }
       else if (e.water && this.y < e.level + 1.0 && floor <= e.level + 1.1) { this.mode = 'swim'; this.events.push('splash'); this.vx *= 0.2; this.vz *= 0.2; this.vy = 0; }
       else if (this.y < floor || hit) {
@@ -363,8 +364,16 @@ export class CameraRig {
     const fp = this.mode === 2;
     const want = fp ? 0 : ground ? (this.mode === 1 ? 2.6 : 4.4) : this.mode === 1 ? 4 + sp * 1.5 : 6.5 + sp * 3.5;
     this.dist = lerp(this.dist, want, 1 - Math.exp(-dt * 5));
+    // colisão da câmera: se há parede, tronco ou muro entre ela e o personagem, ela se aproxima em vez de atravessar
+    let clear = this.dist;
+    if (this.phys && !fp && v < 60) {
+      const hy = p.y + (ground ? 0.95 : 1.1);
+      for (let d = 0.5; d <= this.dist; d += 0.3) if (this.phys.solidAt(p.x - L.x * d, hy - L.y * d, p.z - L.z * d)) { clear = Math.max(0.45, d - 0.4); break; }
+    }
+    this.cdist = clear < (this.cdist ?? clear) ? clear : lerp(this.cdist ?? clear, clear, 1 - Math.exp(-dt * 4));
+    const dist = Math.min(this.dist, this.cdist);
     const up = fp ? (ground ? 0.72 : 0.2) : ground ? 0.95 : p.hover ? 1.0 : 1.25;
-    const C = { x: p.x - L.x * this.dist + (fp ? L.x * 0.25 : 0), y: p.y + up - L.y * this.dist, z: p.z - L.z * this.dist + (fp ? L.z * 0.25 : 0) };
+    const C = { x: p.x - L.x * dist + (fp ? L.x * 0.25 : 0), y: p.y + up - L.y * dist, z: p.z - L.z * dist + (fp ? L.z * 0.25 : 0) };
     const g = terrain.heightAt(C.x, C.z);
     if (g.ok && C.y < g.h + 0.5) C.y = g.h + 0.5;
     // tremor em alta velocidade / perto do Mach 1 / impactos

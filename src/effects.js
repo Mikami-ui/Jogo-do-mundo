@@ -131,8 +131,8 @@ vec2 c = gl_PointCoord-0.5; float a = smoothstep(0.5, 0.0, length(c)); gl_FragCo
     this.pw[i * 3] = x; this.pw[i * 3 + 1] = y; this.pw[i * 3 + 2] = z;
     this.pv[i * 3] = vx; this.pv[i * 3 + 1] = vy; this.pv[i * 3 + 2] = vz;
     this.pl[i] = life; this.pmax[i] = life;
-    this.psz[i] = size; this.pgrow[i] = kind === 'water' ? size * 0.9 : 6;
-    const c = kind === 'snow' ? [1, 1, 1.05] : kind === 'water' ? [0.85, 0.9, 0.95] : [0.55, 0.47, 0.38];
+    this.psz[i] = size; this.pgrow[i] = kind === 'water' ? size * 0.9 : kind === 'spark' ? size * 0.4 : 6;
+    const c = kind === 'snow' ? [1, 1, 1.05] : kind === 'water' ? [0.85, 0.9, 0.95] : kind === 'spark' ? [1.6, 1.25, 0.35] : [0.55, 0.47, 0.38];
     const L = Math.max(this.light || 1, 0.05); // partículas iluminadas pela luz do momento (brancas de dia, escuras à noite)
     this.pcol[i * 4] = c[0] * L; this.pcol[i * 4 + 1] = c[1] * L; this.pcol[i * 4 + 2] = c[2] * L;
   }

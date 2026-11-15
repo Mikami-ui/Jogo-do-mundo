@@ -46,7 +46,7 @@ export class Hero {
     const bones = {};
     model.traverse((o) => {
       if (o.isBone) bones[o.name.replace(/^mixamorig:?/, '')] = o;
-      if (o.isMesh) { o.frustumCulled = false; o.castShadow = false; }
+      if (o.isMesh) { o.frustumCulled = false; o.castShadow = true; }
     });
     this.bones = bones;
     // escala para 1,80 m e pés no chão; o centro do corpo (pivô do jogo) fica 1 m acima dos pés

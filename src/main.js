@@ -11,6 +11,9 @@ import { Effects } from './effects.js';
 import { Post } from './post.js';
 import { Buildings } from './buildings.js';
 import { World } from './world.js';
+import { getTextures } from './textures.js';
+import { Physics } from './collision.js';
+import { Objectives, OBJECTIVE_TYPES } from './objectives.js';
 import { Landmarks } from './landmarks.js';
 import { Game, fmtTime as fmtDur } from './game.js';
 import { MiniMap, WorldMap } from './map.js';
@@ -44,7 +47,7 @@ const PLACES = [
 ];
 
 // ---------------- ajustes ----------------
-const DEFAULTS = { now: true, hour: 12, ts: '1', season: 'auto', weather: 'live', quality: matchMedia('(pointer: coarse)').matches ? 'media' : 'alta', img: 'esri', suit: '#1c3f9e', acc: '#ff6a1a', helmet: '#eeeeee', trail: '#ffffff', boost: 1, bld: true, lbl: true, snd: true, inv: false, blur: true, sens: 1 };
+const DEFAULTS = { now: true, hour: 12, ts: '1', season: 'auto', weather: 'live', quality: 'auto', img: 'esri', suit: '#1c3f9e', acc: '#ff6a1a', helmet: '#eeeeee', trail: '#ffffff', boost: 1, bld: true, lbl: true, snd: true, inv: false, blur: true, sens: 1 };
 let S = { ...DEFAULTS };
 try { S = { ...DEFAULTS, ...JSON.parse(localStorage.getItem('jdm-settings') || '{}') }; } catch (e) { /* sem storage */ }
 const saveS = () => { try { localStorage.setItem('jdm-settings', JSON.stringify(S)); } catch (e) { /* ok */ } };
@@ -58,9 +61,11 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(65, 1, 0.3, 4e7);
 const post = new Post(renderer);
 let pixelRatio = 1;
+// qualidade em uso: a escolhida, ou — no modo automático — a que o aparelho aguenta (começa pela do tipo de aparelho)
+let Q = S.quality === 'auto' ? (matchMedia('(pointer: coarse)').matches ? 'media' : 'alta') : S.quality;
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
-  const maxPR = { baixa: 0.75, media: 1.25, alta: 2 }[S.quality];
+  const maxPR = { baixa: 0.75, media: 1.25, alta: 2 }[Q];
   pixelRatio = Math.min(window.devicePixelRatio || 1, maxPR);
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(w, h, false);
@@ -73,6 +78,7 @@ window.addEventListener('resize', resize);
 const G = {
   uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunI: { value: 20 }, uHaze: { value: 1 }, uAmbient: { value: new THREE.Vector3(0.2, 0.25, 0.35) },
   uOvercast: { value: 0 }, uCamAlt: { value: 1000 }, uCamLL: { value: new THREE.Vector2() }, uMaxDist: { value: 3e5 },
+  uDetail: { value: getTextures().detail },
   uSnowLine: { value: 3000 }, uAutumn: { value: 0 }, uWinter: { value: 0 }, uMoon: { value: new THREE.Vector3() }, uTime: { value: 0 },
 };
 
@@ -94,11 +100,40 @@ const sunLight = new THREE.DirectionalLight(0xffffff, 3); scene.add(sunLight); s
 const hemi = new THREE.HemisphereLight(0x8899bb, 0x443322, 1); scene.add(hemi);
 scene.fog = new THREE.FogExp2(0x9fb3c8, 0.00002);
 
+// sombras do sol: mapa único que acompanha o jogador; só objetos relevantes projetam (casas, árvores próximas, postes, personagem)
+const SHADOW = { baixa: null, media: { size: 1024, range: 55, type: THREE.PCFShadowMap }, alta: { size: 2048, range: 110, type: THREE.PCFSoftShadowMap } };
+Object.assign(G, { uShadowMap: { value: null }, uShadowMatrix: { value: sunLight.shadow.matrix }, uShadowOn: { value: 0 }, uShadowTexel: { value: 1 / 1024 } });
+const physics = new Physics(frame);
+world.physics = physics; terrain.physics = physics; player.phys = physics; rig.phys = physics;
+terrain.treeFilter = (x, z) => world.treeOk(x, z);
+world.onCellBuilt = (c, ax, az, size) => terrain.refreshTrees(ax, az, size); // refaz as árvores dali já sabendo onde há rua e casa
 function applyQuality() {
-  terrain.setQuality(S.quality);
-  world.radius = 1; world.bDist = { baixa: 450, media: 750, alta: 1400 }[S.quality];
-  post.mat.uniforms.uSamples.value = S.quality === 'baixa' ? 1 : S.quality === 'media' ? 6 : 10;
+  terrain.setQuality(Q);
+  world.setQuality(Q);
+  world.radius = 1; world.bDist = { baixa: 200, media: 380, alta: 650 }[Q]; world.pDist = { baixa: 110, media: 190, alta: 300 }[Q]; // distâncias medidas até a borda do quarteirão
+  const sh = SHADOW[Q];
+  renderer.shadowMap.enabled = !!sh; sunLight.castShadow = !!sh;
+  if (sh) {
+    renderer.shadowMap.type = sh.type;
+    sunLight.shadow.mapSize.set(sh.size, sh.size); sunLight.shadow.map?.dispose(); sunLight.shadow.map = null;
+    const cam = sunLight.shadow.camera; cam.left = -sh.range; cam.right = sh.range; cam.top = sh.range; cam.bottom = -sh.range; cam.near = 5; cam.far = 600; cam.updateProjectionMatrix();
+    sunLight.shadow.bias = -0.0008; sunLight.shadow.normalBias = 0.25;
+    G.uShadowTexel.value = 1 / sh.size;
+  } else { G.uShadowOn.value = 0; G.uShadowMap.value = null; }
+  terrain.shadowRange = sh ? sh.range : 0;
+  terrain.setTreeLOD(world.mats.bark, world.mats.leaf, { baixa: 0, media: 110, alta: 220 }[Q], { baixa: 0, media: 65, alta: 110 }[Q], !!sh);
+  scene.traverse((o) => { if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.needsUpdate = true; });
+  post.mat.uniforms.uSamples.value = Q === 'baixa' ? 1 : Q === 'media' ? 6 : 10;
   resize();
+}
+// modo automático: se o jogo ficar abaixo de 24 quadros por segundo por alguns segundos, desce um nível
+renderer.info.autoReset = false;
+const stats = { calls: 0, tris: 0, ms: 0 }; // chamadas de desenho, triângulos e tempo de CPU por quadro
+let slowT = 0;
+function autoQuality(dt, fpsNow) {
+  if (S.quality !== 'auto' || Q === 'baixa' || !playing || menuOpen || terrain.loading > 40) { slowT = 0; return; }
+  slowT = fpsNow < 24 ? slowT + dt : Math.max(0, slowT - dt * 2);
+  if (slowT > 5) { slowT = 0; Q = Q === 'alta' ? 'media' : 'baixa'; applyQuality(); toast('Qualidade ajustada: ' + (Q === 'media' ? 'Média' : 'Baixa')); }
 }
 terrain.imgSrc = S.img;
 applyQuality();
@@ -112,7 +147,7 @@ let weather = { ...WEATHER_PRESETS.clear, live: false };
 let liveWeather = null, wxPos = null, wxT = -1e9;
 let place = { name: '', sub: '' }, geoPos = null, geoT = -1e9, geoBusy = false;
 let atmoT = 0, lightningT = 5, flash = 0, exposure = 1;
-let spawnGuard = 0, spawnMin = 250;
+let arriving = false, arriveT = 0, spawnMin = 250;
 const env = { light: 1, humidity: 0.5, snowy: false, pr: 1 };
 const amb = [0.2, 0.25, 0.35], sunT = [1, 1, 1];
 
@@ -142,6 +177,8 @@ window.addEventListener('keydown', (e) => {
   if (/^Digit[1-6]$/.test(e.code)) setBoost(+e.code.slice(5) - 1);
   if (e.code === 'KeyC') toast(rig.next());
   if (e.code === 'KeyG') avatar.wave();
+  if (e.code === 'KeyE' && !menuOpen && player.mode !== 'fly') objectives.interact();
+  else if (e.code === 'KeyE' && !menuOpen && player.hover) objectives.interact();
   if (e.code === 'KeyP') photoReq = true;
   if (e.code === 'KeyR' && !menuOpen) game.startRings();
   if (e.code === 'KeyT') { hourOffsetMs += 3600000; toast('+1 hora'); }
@@ -283,7 +320,7 @@ function seg(id, key, onChange) {
 seg('set-ts', 'ts');
 seg('set-season', 'season');
 seg('set-weather', 'weather', () => applyWeather());
-seg('set-quality', 'quality', () => { applyQuality(); });
+seg('set-quality', 'quality', (v) => { Q = v === 'auto' ? (isTouch ? 'media' : 'alta') : v; applyQuality(); });
 seg('set-img', 'img', (v) => { terrain.setImagery(v); globe.loadTextures(v); updateCredits(); });
 const chk = (id, key, fn) => { const el = $(id); el.checked = !!S[key]; el.onchange = () => { S[key] = el.checked; saveS(); fn?.(el.checked); }; };
 chk('set-now', 'now', (v) => { hourOffsetMs = 0; if (!v) setHour(S.hour); });
@@ -368,6 +405,22 @@ const game = new Game(scene, frame, terrain, player, camera, {
     wpEl.lastChild.textContent = dist >= 1000 ? (dist / 1000).toFixed(dist >= 100000 ? 0 : 1) + ' km' : Math.round(dist) + ' m';
   },
 });
+const actEl = $('act');
+const objectives = new Objectives(scene, frame, physics, {
+  prompt: (text, ok) => {
+    if (!text) { actEl.classList.add('hidden'); return; }
+    const t = ok ? (isTouch ? 'TOQUE · ' : 'E · ') + text : text;
+    if (actEl.textContent !== t) actEl.textContent = t;
+    actEl.classList.remove('hidden'); actEl.classList.toggle('no', !ok);
+  },
+  completed: (o) => {
+    toast(`${o.def.feito} · ${objectives.total} objetivos concluídos`);
+    sound.burst(0.35, 2400, 0.35); sound.burst(0.5, 900, 0.3, 0.12);
+    for (let i = 0; i < 36; i++) { const a = Math.random() * 6.28; effects.emit(o.x, o.y + 0.6, o.z, Math.cos(a) * 2.5, 2 + Math.random() * 4, Math.sin(a) * 2.5, 0.7 + Math.random() * 0.5, 0.07 + Math.random() * 0.09, 'spark'); }
+  },
+});
+const doAct = (e) => { e?.preventDefault(); sound.init(); objectives.interact(); };
+actEl.addEventListener('click', doAct); actEl.addEventListener('touchstart', doAct, { passive: false });
 const mini = new MiniMap($('minimap'));
 const here = () => frame.toLatLon(player.x, player.z);
 let favs = [];
@@ -425,6 +478,7 @@ function renderChallenges() {
     [n(st.km) + ' km', 'Distância voada'], [st.bestRings ? fmtDur(st.bestRings) : '—', `Melhor percurso de anéis (${st.ringsDone} feitos)`],
     [st.bestRace ? n(st.bestRace) + ' km/h' : '—', `Melhor média em corrida (${st.racesDone} feitas)`],
   ].map(([v, l]) => `<div><b>${v}</b><small>${l}</small></div>`).join('');
+  $('ch-obj').innerHTML = `<div><b>${objectives.total}</b><small>Objetivos concluídos</small></div>` + Object.entries(OBJECTIVE_TYPES).map(([k, d]) => `<div><b>${objectives.counts[k] || 0}</b><small>${d.acao}</small></div>`).join('');
   const fe = $('ch-found'); fe.innerHTML = '';
   $('ch-found-n').textContent = `(${Object.keys(game.found).length}/${landmarks.items.length})`;
   for (const L of landmarks.items) { const b = document.createElement('button'); b.textContent = (game.found[L.id] ? '✓ ' : '') + L.name; b.className = game.found[L.id] ? 'ok' : ''; b.title = 'Ir até lá'; b.onclick = () => go({ n: L.name, lat: L.lat - 0.007, lon: L.lon, alt: null, hd: 0 }); fe.appendChild(b); }
@@ -477,12 +531,13 @@ async function go(p) {
   $('start').classList.add('hidden'); $('hud').classList.remove('hidden');
   $('touch').classList.toggle('hidden', !isTouch);
   toggleMenu(false);
-  if (isTouch) { try { await document.documentElement.requestFullscreen?.(); await screen.orientation?.lock?.('landscape'); } catch (e) { /* opcional */ } }
+  // tela cheia e paisagem são pedidas sem esperar a resposta: o teletransporte não depende delas
+  if (isTouch) (async () => { try { await document.documentElement.requestFullscreen?.(); await screen.orientation?.lock?.('landscape'); } catch (e) { /* opcional */ } })();
   frame.set(p.lat, p.lon);
   terrain.reset(); buildings.clear(); world.clear(); effects.clear(); clouds.cellKey = ''; game.stop(true);
   player.x = 0; player.z = 0;
   player.y = p.alt ?? 1500;
-  spawnGuard = p.alt == null ? 8 : 5; spawnMin = p.alt == null ? 250 : 60;
+  arriving = (p.alt ?? 1500) < 20000; arriveT = 0; spawnMin = p.alt == null ? 250 : 60;
   rig.yaw = (p.hd || 0) * DEG; rig.pitch = p.alt > 100000 ? -0.28 : -0.12;
   player.launch(rig.yaw, p.alt > 100000 ? 0 : -0.05, p.spd ?? 45);
   setBoost(S.boost ?? 1, true);
@@ -531,20 +586,23 @@ const tmpV = new THREE.Vector3(), fwdV = new THREE.Vector3();
 let hudT = 0, fps = 60;
 function loop() {
   requestAnimationFrame(loop);
+  const t0 = performance.now();
   const dt = Math.min(clock.getDelta(), 0.1);
   fps = lerp(fps, 1 / Math.max(dt, 1e-3), 0.05);
+  autoQuality(dt, fps);
   G.uTime.value += dt;
   simUtc += dt * 1000 * (+S.ts) ;
   if (S.now && S.ts === '1') simUtc = Date.now();
   updateInput(dt);
 
-  if (playing && !menuOpen) { const n = dt > 0.04 ? 2 : 1; for (let i = 0; i < n; i++) player.update(dt / n, inp, terrain, world, rig); } // subpassos mantêm a física estável em aparelhos lentos
-  // garante que o jogador não comece dentro de uma montanha
-  if (spawnGuard > 0) {
-    spawnGuard -= dt;
+  // chegada a um lugar: o jogador fica parado no ar até o relevo detalhado do ponto carregar. Sem isso, o relevo
+  // provisório (de baixa resolução) podia ficar acima dele, fazê-lo "pousar" numa colina falsa e depois despencar.
+  if (arriving) {
+    arriveT += dt;
+    terrain.needElev(player.x, player.z);
     const g = terrain.heightAt(player.x, player.z);
-    if (g.ok && g.z >= 12) { if (player.mode === 'fly' && !player.landing && player.y < g.h + spawnMin) player.y = g.h + spawnMin; spawnGuard = 0; }
-  }
+    if ((g.ok && g.z >= 12) || arriveT > 25) { if (g.ok && player.y < g.h + spawnMin) player.y = g.h + spawnMin; arriving = false; }
+  } else if (playing && !menuOpen) { const n = dt > 0.04 ? 2 : 1; for (let i = 0; i < n; i++) player.update(dt / n, inp, terrain, world, rig); } // subpassos mantêm a física estável em aparelhos lentos
   for (const ev of player.events) {
     if (ev === 'boom') { sound.boom(); effects.boom(player, player.forward(fwdV)); rig.shake = 0.6; toast('Barreira do som!'); }
     else if (ev === 'impact') { sound.impact(); effects.burst(player, env.snowy ? 'snow' : 'dust', 160, 1.2); rig.shake = 0.9; }
@@ -628,6 +686,23 @@ function loop() {
   const sunCol = new THREE.Color(sunT[0], sunT[1], sunT[2]).multiplyScalar(1 - oc * 0.78);
   sunLight.color.copy(sunCol); sunLight.intensity = Math.PI * 2.2;
   sunLight.position.copy(G.uSunDir.value).multiplyScalar(100); sunLight.target.position.set(0, 0, 0);
+  const shc = SHADOW[Q];
+  if (shc) {
+    const d = G.uSunDir.value, on = d.y > 0.07 && player.agl < 1500;
+    sunLight.castShadow = on;
+    G.uShadowMap.value = sunLight.shadow.map ? sunLight.shadow.map.texture : null;
+    G.uShadowOn.value = on && G.uShadowMap.value ? 1 : 0;
+    if (on) {
+      const xl = Math.hypot(d.z, d.x) || 1, xx = d.z / xl, xz = -d.x / xl;           // eixo X da câmera de sombra = up × dir
+      const yx = d.y * xz, yy = d.z * xx - d.x * xz, yz = -d.y * xx;                    // eixo Y = dir × X
+      const tex = (2 * shc.range) / shc.size;
+      const sx = player.x * xx + player.z * xz, sy = player.x * yx + player.y * yy + player.z * yz;
+      const ox = Math.round(sx / tex) * tex - sx, oy = Math.round(sy / tex) * tex - sy;
+      const cx = player.x + xx * ox + yx * oy - C.x, cy = player.y + yy * oy, cz = player.z + xz * ox + yz * oy - C.z;
+      sunLight.target.position.set(cx, cy, cz); sunLight.position.set(cx + d.x * 300, cy + d.y * 300, cz + d.z * 300);
+    }
+  }
+  sunLight.target.updateMatrixWorld();
   hemi.color.setRGB(amb[0] * 1.2 + G.uMoon.value.x, amb[1] * 1.2 + G.uMoon.value.y, amb[2] * 1.2 + G.uMoon.value.z); hemi.groundColor.setRGB(amb[0] * 0.5, amb[1] * 0.45, amb[2] * 0.4); hemi.intensity = Math.PI;
   {
     const hc = skyRadianceJS([0.97 * Math.cos(player.yaw - Math.PI / 2), 0.05, 0.97 * Math.sin(player.yaw - Math.PI / 2)], Math.max(Math.min(camAlt, 20000), 0), sunArr, G.uHaze.value);
@@ -677,6 +752,8 @@ function loop() {
   env.pr = pixelRatio;
   effects.update(dt, player, C, camera, avatar, env);
   landmarks.update(C);
+  objectives.update(dt, C, player, playing && !menuOpen);
+  world.time.value = G.uTime.value;
   game.update(dt, C, landmarks, playing && !menuOpen);
   if (playing) mini.draw(dt, pll.lat, pll.lon, player.yaw, Math.max(player.agl, 0), game.dest ? game.ll(game.dest) : null);
 
@@ -699,7 +776,9 @@ function loop() {
   post.mat.uniforms.uFlash.value = flash * 0.08;
   post.mat.uniforms.uVig.value = 0.3;
 
+  renderer.info.reset();
   post.render(scene, camera);
+  stats.calls = renderer.info.render.calls; stats.tris = renderer.info.render.triangles; stats.ms = lerp(stats.ms, performance.now() - t0, 0.1);
   if (photoReq) { photoReq = false; takePhoto(); }
 
   // HUD
@@ -738,7 +817,8 @@ function updateHUD(ll, pll, camAlt, doy) {
   // dicas
   let hint = '';
   const touch = isTouch, md = player.mode;
-  if (md === 'fly') hint = player.landing ? 'Pousando…' : player.hover ? (touch ? 'Analógico: mover · arraste a direita: olhar · TURBO: voar rápido · POUSAR: descer' : 'WASD: mover · mouse: olhar · Shift: turbo · F: pousar · Espaço/Q: subir/descer') : player.speed > 250 ? (touch ? 'Voa para onde você olha · FREIO: parar · PLANAR: wingsuit' : 'Voa para onde você olha · S: frear · X: planar · 1–6: boost') : '';
+  if (arriving) hint = 'Carregando o terreno…';
+  else if (md === 'fly') hint = player.landing ? 'Pousando…' : player.hover ? (touch ? 'Analógico: mover · arraste a direita: olhar · TURBO: voar rápido · POUSAR: descer' : 'WASD: mover · mouse: olhar · Shift: turbo · F: pousar · Espaço/Q: subir/descer') : player.speed > 250 ? (touch ? 'Voa para onde você olha · FREIO: parar · PLANAR: wingsuit' : 'Voa para onde você olha · S: frear · X: planar · 1–6: boost') : '';
   else if (md === 'glide') hint = touch ? 'Planando · analógico: virar e mergulhar · TURBO: voltar a voar' : 'Planando · A/D: virar · W/S: mergulhar/frear · Shift: voltar a voar';
   else if (md === 'swim') hint = touch ? 'Nadando · TURBO: nadar rápido · VOAR: sair da água' : 'Nadando · Shift: nadar rápido · F: voar';
   else hint = player.hspeed < 0.3 ? (touch ? 'Analógico: andar · TURBO: correr · PULAR · VOAR' : 'WASD: andar · Shift: correr · Espaço: pular · F: voar · G: acenar') : '';
@@ -748,6 +828,7 @@ function updateHUD(ll, pll, camAlt, doy) {
   $('t-x').textContent = md === 'fly' ? 'PLANAR' : 'ACENAR'; $('t-x').style.visibility = md === 'fly' || md === 'walk' ? 'visible' : 'hidden';
   $('t-boost').textContent = md === 'walk' ? 'CORRER' : 'TURBO';
   $('spd-boost').textContent = `BOOST ${player.boost + 1} · ${BOOSTS[player.boost].name.toUpperCase()}`;
+  $('obj').textContent = objectives.pending ? `◆ ${objectives.pending} objetivo${objectives.pending > 1 ? 's' : ''} por perto · ${objectives.total} concluído${objectives.total === 1 ? '' : 's'}` : objectives.total ? `◆ ${objectives.total} objetivos concluídos` : '';
   const L = terrain.loading;
   $('loading').textContent = L > 3 ? `carregando terreno… ${L}` : '';
 }
@@ -761,4 +842,4 @@ $('boot').textContent = 'Escolha um lugar para começar';
 loop();
 // posição inicial atrás do menu (cenário de fundo)
 frame.set(45.905, 6.86); player.y = 2600; rig.yaw = 205 * DEG; player.launch(rig.yaw, 0, 0);
-window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe, buildings, world, game, landmarks, openTab, inp, avatar, setBoost, takePhoto: () => { photoReq = true; } };
+window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe, buildings, world, game, landmarks, openTab, inp, avatar, setBoost, physics, objectives, quality: () => Q, fps: () => fps, stats, arriving: () => arriving, takePhoto: () => { photoReq = true; } };

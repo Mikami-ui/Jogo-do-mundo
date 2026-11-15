@@ -26,6 +26,8 @@
   <div id="goal"></div>
   <div id="wp"><i></i><span></span></div>
   <canvas id="minimap" title="Abrir mapa"></canvas>
+  <div id="obj"></div>
+  <button id="act" class="hidden"></button>
   <div id="hint"></div>
   <div id="toast"></div>
   <div id="loc">
@@ -123,6 +125,9 @@
       </div>
       <div class="label">Corrida até uma cidade</div>
       <div id="ch-races" class="results"></div>
+      <div class="label">Objetivos do cenário</div>
+      <div id="ch-obj" class="stats"></div>
+      <p class="note">Losangos laranja marcam objetivos em casas, troncos de árvores, postes, bancos, placas, pedras e muros. Chegue perto a pé e use <kbd>E</kbd> (ou toque no botão) para concluir; os concluídos ficam verdes e salvos.</p>
       <div class="label">Recordes</div>
       <div id="ch-stats" class="stats"></div>
       <div class="label">Monumentos descobertos <span id="ch-found-n"></span></div>
@@ -142,7 +147,7 @@
       <div class="row"><label>Passagem do tempo</label><div class="ctl seg" id="set-ts" data-opts="1:Real,60:60×,600:600×"></div></div>
       <div class="row"><label>Estação do ano</label><div class="ctl seg" id="set-season" data-opts="auto:Auto,spring:Primavera,summer:Verão,autumn:Outono,winter:Inverno"></div></div>
       <div class="row"><label>Clima</label><div class="ctl seg" id="set-weather" data-opts="live:Ao vivo,clear:Limpo,cloudy:Nublado,rain:Chuva,snow:Neve,storm:Tempestade,fog:Neblina"></div></div>
-      <div class="row"><label>Qualidade gráfica</label><div class="ctl seg" id="set-quality" data-opts="baixa:Baixa,media:Média,alta:Alta"></div></div>
+      <div class="row"><label>Qualidade gráfica</label><div class="ctl seg" id="set-quality" data-opts="auto:Automática,baixa:Baixa,media:Média,alta:Alta"></div></div>
       <div class="row"><label>Imagens de satélite</label><div class="ctl seg" id="set-img" data-opts="esri:Esri (detalhada),s2:Sentinel-2"></div></div>
       <div class="row"><label>Opções</label><div class="ctl">
         <label class="chk"><input type="checkbox" id="set-bld" checked> Casas, prédios, lagos e rios 3D</label>
@@ -162,6 +167,7 @@
         <div><kbd>F</kbd><span>Decolar / pousar</span></div>
         <div><kbd>Espaço</kbd><span>Pular (no chão) · subir (pairando). <kbd>Q</kbd> desce</span></div>
         <div><kbd>X</kbd><span>Planar de wingsuit</span></div>
+        <div><kbd>E</kbd><span>Interagir com um objetivo (losango laranja)</span></div>
         <div><kbd>G</kbd><span>Acenar</span></div>
         <div><kbd>C</kbd><span>Trocar câmera</span></div>
         <div><kbd>P</kbd><span>Tirar foto</span></div>

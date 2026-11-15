@@ -24,9 +24,16 @@ export async function fetchWeather(lat, lon) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
     `&current=temperature_2m,relative_humidity_2m,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,precipitation` +
     `&hourly=${HV.join(',')}&past_days=1&forecast_days=3&timeformat=unixtime&timezone=auto`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error('clima ' + r.status);
-  const d = await r.json();
+  // guarda a última resposta por 10 minutos: reabrir o jogo no mesmo lugar não consulta o servidor de novo
+  const key = lat.toFixed(1) + ',' + lon.toFixed(1);
+  let d = null;
+  try { const c = JSON.parse(localStorage.getItem('jdm-wx') || 'null'); if (c && c.k === key && Date.now() - c.t < 600000) d = c.d; } catch (e) { /* sem cache */ }
+  if (!d) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('clima ' + r.status);
+    d = await r.json();
+    try { localStorage.setItem('jdm-wx', JSON.stringify({ k: key, t: Date.now(), d })); } catch (e) { /* ok */ }
+  }
   const h = d.hourly || {}, t = h.time || [];
   const at = (i) => ({ code: h.weather_code?.[i] ?? 0, cover: h.cloud_cover?.[i] ?? 30, temp: h.temperature_2m?.[i] ?? 15, rh: h.relative_humidity_2m?.[i] ?? 60,
     wind: h.wind_speed_10m?.[i] ?? 5, windDir: h.wind_direction_10m?.[i] ?? 0, vis: h.visibility?.[i] ?? 30000, snow: h.snow_depth?.[i] ?? 0, rain: h.precipitation?.[i] ?? 0 });

@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { ATMO_GLSL } from './atmosphere.js';
 import { RE, tileSize, tileMinX, tileMaxY, MERC_MAX, clamp, mulberry } from './geo.js';
+import { treeGeometries } from './scenery.js';
 
 const N = 32;                 // segmentos por tile
 const ELEV_MAX_Z = 13;
@@ -65,11 +66,13 @@ async function fetchBitmap(url, signal, minBytes = 0) {
 
 // ---------------- índice compartilhado (grade + saias) ----------------
 const VERTS = (N + 1) * (N + 1) + 4 * (N + 1);
-function buildIndex() {
+// step > 1 pula vértices: tiles de zoom alto usam a mesma grade de vértices com menos triângulos, porque o
+// relevo real (zoom 13) não tem mais detalhe que isso — o desenho fica igual com uma fração dos triângulos.
+function buildIndex(step = 1) {
   const idx = [];
   const g = (i, j) => j * (N + 1) + i;
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-    const a = g(i, j), b = g(i + 1, j), c = g(i, j + 1), d = g(i + 1, j + 1);
+  for (let j = 0; j < N; j += step) for (let i = 0; i < N; i += step) {
+    const a = g(i, j), b = g(i + step, j), c = g(i, j + step), d = g(i + step, j + step);
     idx.push(a, c, b, b, c, d);
   }
   const base = (N + 1) * (N + 1);
@@ -77,8 +80,8 @@ function buildIndex() {
     (k) => g(k, 0), (k) => g(k, N), (k) => g(0, k), (k) => g(N, k),
   ];
   edges.forEach((e, s) => {
-    for (let k = 0; k < N; k++) {
-      const a = e(k), b = e(k + 1), c = base + s * (N + 1) + k, d = c + 1;
+    for (let k = 0; k < N; k += step) {
+      const a = e(k), b = e(k + step), c = base + s * (N + 1) + k, d = c + step;
       idx.push(a, b, c, b, d, c, a, c, b, b, c, d);
     }
   });
@@ -90,9 +93,9 @@ const VERT = /* glsl */`
 #include <common>
 #include <logdepthbuf_pars_vertex>
 ${ATMO_GLSL}
-uniform vec2 uTileRel; uniform float uTileSize; uniform vec3 uMerc; uniform vec2 uCamLL; uniform vec2 uNoiseOff;
+uniform vec2 uTileRel; uniform float uTileSize; uniform vec3 uMerc; uniform vec2 uCamLL; uniform vec2 uNoiseOff; uniform vec2 uDetOff; uniform mat4 uShadowMatrix;
 varying vec2 vUv; varying vec3 vN; varying float vH; varying vec3 vRel; varying vec3 vAerial; varying vec3 vT;
-varying float vDist; varying vec2 vNoise; varying float vSunMu; varying float vSlope; varying vec3 vUp;
+varying float vDist; varying vec2 vNoise; varying float vSunMu; varying float vSlope; varying vec3 vUp; varying vec2 vDet; varying vec4 vShadow;
 void main(){
   vec2 p = uTileRel + position.xz*uTileSize;
   float dp = length(p);
@@ -123,6 +126,8 @@ void main(){
   vSunMu = dot(vUp, uSunDir);
   vSlope = normal.y;
   vH = h; vUv = position.xz; vNoise = uNoiseOff + position.xz*uTileSize;
+  vShadow = uShadowMatrix * vec4(wp, 1.0);
+  vDet = uDetOff + position.xz*uTileSize; // coordenada pequena (0–64 m + tile), presa ao mundo: não perde precisão
   vec3 rel = wp - vec3(0.0, uCamAlt, 0.0);
   float L = max(length(rel), 0.01);
   vRel = rel; vDist = dp;
@@ -135,12 +140,13 @@ void main(){
 
 const FRAG = /* glsl */`
 #include <common>
+#include <packing>
 #include <logdepthbuf_pars_fragment>
 ${ATMO_GLSL}
-uniform sampler2D uTex; uniform float uHasTex; uniform vec4 uUvX; uniform float uMaxDist;
+uniform sampler2D uTex; uniform sampler2D uDetail; uniform sampler2D uShadowMap; uniform float uShadowOn; uniform float uShadowTexel; uniform float uHasTex; uniform vec4 uUvX; uniform float uMaxDist;
 uniform float uSnowLine; uniform float uAutumn; uniform float uWinter; uniform vec3 uMoon; uniform float uTime; uniform float uFade;
 varying vec2 vUv; varying vec3 vN; varying float vH; varying vec3 vRel; varying vec3 vAerial; varying vec3 vT;
-varying float vDist; varying vec2 vNoise; varying float vSunMu; varying float vSlope; varying vec3 vUp;
+varying float vDist; varying vec2 vNoise; varying float vSunMu; varying float vSlope; varying vec3 vUp; varying vec2 vDet; varying vec4 vShadow;
 float h21(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
 float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
   return mix(mix(h21(i), h21(i+vec2(1,0)), f.x), mix(h21(i+vec2(0,1)), h21(i+vec2(1,1)), f.x), f.y); }
@@ -164,7 +170,7 @@ void main(){
   // faixa de areia na beira-mar: clara e amarelada na foto → é chão, não água
   if (water && uHasTex > 0.5 && alb.r > alb.b * 1.12 && lum > 0.16) water = false;
   // mar e lagoas rasas que o relevo marca 1–4 m acima de zero: azul-escuro na foto → é água
-  else if (!water && uHasTex > 0.5 && vH < 40.0 && alb.b > alb.r * 2.2 && alb.b > alb.g * 0.85 && lum < 0.22) water = true;
+  else if (!water && uHasTex > 0.5 && vH < 12.0 && alb.b > alb.r * 2.2 && alb.b > alb.g * 0.85 && lum < 0.22) water = true;
   if (!water) {
     float green = clamp((alb.g - max(alb.r, alb.b)) * 12.0, 0.0, 1.0);
     // outono: folhas mudam de cor
@@ -181,18 +187,29 @@ void main(){
     vec3 snowCol = vec3(0.6, 0.64, 0.7) * (0.6 + 0.9 * clamp(lum * 4.0, 0.0, 1.0));
     alb = mix(alb, snowCol, snow);
   }
-  if (!water) {
-    float dist = length(vRel);
-    float near = 1.0 - smoothstep(25.0, 160.0, dist);
-    if (near > 0.0) {
-      float fine = vn(vNoise * 2.3) * 0.5 + vn(vNoise * 7.1) * 0.3 + vn(vNoise * 19.0) * 0.2;
-      float mid = vn(vNoise * 0.45);
-      alb *= 1.0 + near * ((fine - 0.5) * 0.55 + (mid - 0.5) * 0.18);
-    }
+  float dNear = 1.0 - smoothstep(20.0, 140.0, length(vRel));
+  if (!water && dNear > 0.0) {
+    // detalhe de perto: textura repetível ancorada no chão (4 m e 16 m), não na câmera
+    vec3 d1 = texture2D(uDetail, vDet / 4.0).rgb, d2 = texture2D(uDetail, vDet / 16.0).rgb;
+    alb *= 1.0 + dNear * ((d1.r - 0.5) * 0.5 + (d2.g - 0.5) * 0.3);
   }
   vec3 ts = sunTransmit(max(vH, 0.0), vSunMu) * (1.0 - 0.78*uOvercast);
   float ndl = max(dot(n, uSunDir), 0.0);
-  vec3 light = ts * SUNK * (0.3 + 0.85*ndl) + uAmbient * 0.9 + uMoon * (0.4 + 0.6*max(n.y, 0.0));
+  // sombra das casas, árvores, postes e do personagem sobre o chão (mapa de sombra do sol, 4 amostras)
+  float shd = 1.0;
+  if (uShadowOn > 0.5) {
+    vec3 sc = vShadow.xyz / vShadow.w;
+    float e = max(abs(sc.x - 0.5), abs(sc.y - 0.5)) * 2.0;
+    if (e < 1.0 && sc.z < 1.0 && sc.z > 0.0) {
+      float s4 = 0.0;
+      s4 += step(sc.z - 0.0007, unpackRGBAToDepth(texture2D(uShadowMap, sc.xy + vec2(-0.6, -0.4) * uShadowTexel)));
+      s4 += step(sc.z - 0.0007, unpackRGBAToDepth(texture2D(uShadowMap, sc.xy + vec2(0.6, -0.5) * uShadowTexel)));
+      s4 += step(sc.z - 0.0007, unpackRGBAToDepth(texture2D(uShadowMap, sc.xy + vec2(-0.5, 0.6) * uShadowTexel)));
+      s4 += step(sc.z - 0.0007, unpackRGBAToDepth(texture2D(uShadowMap, sc.xy + vec2(0.4, 0.5) * uShadowTexel)));
+      shd = mix(s4 * 0.25, 1.0, smoothstep(0.8, 1.0, e));
+    }
+  }
+  vec3 light = ts * SUNK * (0.3 + 0.85*ndl) * mix(0.42, 1.0, shd) + uAmbient * 0.9 + uMoon * (0.4 + 0.6*max(n.y, 0.0));
   vec3 col = alb * light;
   if (water) {
     vec3 V = normalize(-vRel);
@@ -297,14 +314,14 @@ function makeTreeGeometry(broadleaf) {
   let cone, cone2, trunk;
   if (broadleaf) { // copa arredondada (florestas tropicais e temperadas quentes)
     cone = new THREE.IcosahedronGeometry(0.42, 0); cone.scale(1.25, 0.8, 1.25); cone.translate(0, 0.62, 0);
-    cone2 = new THREE.IcosahedronGeometry(0.3, 0); cone2.scale(1.2, 0.8, 1.2); cone2.translate(0.14, 0.8, 0.08);
-    trunk = new THREE.CylinderGeometry(0.04, 0.06, 0.4, 4, 1); trunk.translate(0, 0.2, 0);
+    cone2 = new THREE.TetrahedronGeometry(0.3, 0); cone2.scale(1.2, 0.8, 1.2); cone2.translate(0.14, 0.84, 0.08);
+    trunk = new THREE.CylinderGeometry(0.04, 0.06, 0.4, 4, 1, true); trunk.translate(0, 0.2, 0);
   } else {
-    cone = new THREE.ConeGeometry(0.36, 0.82, 6, 1); cone.translate(0, 0.59, 0);
-    cone2 = new THREE.ConeGeometry(0.26, 0.5, 6, 1); cone2.translate(0, 0.78, 0);
-    trunk = new THREE.CylinderGeometry(0.04, 0.06, 0.25, 4, 1); trunk.translate(0, 0.12, 0);
+    cone = new THREE.ConeGeometry(0.36, 0.82, 6, 1, true); cone.translate(0, 0.59, 0);
+    cone2 = new THREE.ConeGeometry(0.26, 0.5, 5, 1, true); cone2.translate(0, 0.78, 0);
+    trunk = new THREE.CylinderGeometry(0.04, 0.06, 0.25, 4, 1, true); trunk.translate(0, 0.12, 0);
   }
-  const add = (g, col) => { g = g.toNonIndexed(); const n = g.attributes.position.count; const c = new Float32Array(n * 3); for (let i = 0; i < n; i++) c.set(col, i * 3); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); parts.push(g); };
+  const add = (g, col) => { if (g.index) g = g.toNonIndexed(); const n = g.attributes.position.count; const c = new Float32Array(n * 3); for (let i = 0; i < n; i++) c.set(col, i * 3); g.setAttribute('color', new THREE.BufferAttribute(c, 3)); parts.push(g); };
   add(cone, broadleaf ? [0.03, 0.065, 0.02] : [0.026, 0.05, 0.022]); add(cone2, broadleaf ? [0.04, 0.08, 0.026] : [0.032, 0.062, 0.027]); add(trunk, [0.06, 0.042, 0.027]);
   let n = 0; parts.forEach((p) => (n += p.attributes.position.count));
   const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
@@ -386,7 +403,7 @@ class Node {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    geo.setIndex(tm.index);
+    geo.setIndex(tm.indices[Math.min(8, (this.z <= 16 ? 1 : this.z === 17 ? 2 : this.z === 18 ? 4 : 8) * (this.z <= tm.coarseZ ? 2 : 1))]);
     const it = this.imgTile();
     const ss = 1 / it.s;
     const has = this.tex.state === 'ok';
@@ -399,6 +416,7 @@ class Node {
         uTileRel: { value: new THREE.Vector2() }, uTileSize: { value: 1 },
         uMerc: { value: new THREE.Vector3(this.minX, this.maxY, this.size) },
         uNoiseOff: { value: new THREE.Vector2(((this.minX * tm.frame.k) % 50000), ((-this.maxY * tm.frame.k) % 50000)) },
+        uDetOff: { value: new THREE.Vector2() },
         uFade: { value: 1 },
       },
     });
@@ -427,7 +445,8 @@ class Node {
     this.dead = true;
     if (this.children) { this.children.forEach((c) => c.dispose()); this.children = null; }
     if (this.mesh) { this.tm.group.remove(this.mesh); this.mesh.geometry.dispose(); this.mesh.material.dispose(); this.mesh = null; }
-    if (this.trees) { this.tm.treeGroup.remove(this.trees); this.trees.dispose(); this.trees = null; }
+    if (this.trees) { this.tm.treeGroup.remove(this.trees); this.trees.dispose(); this.trees = null; this.treeData = null; }
+    if (this.treePg) { this.tm.physics?.removeGroup(this.treePg); this.treePg = null; }
     this.tm.texs.release(this.tex); this.tex = null; this.ready = false;
   }
 }
@@ -445,22 +464,25 @@ export class Terrain {
     this.renderer = renderer; this.frame = frame; this.G = G;
     this.group = new THREE.Group(); this.group.matrixAutoUpdate = false; scene.add(this.group);
     this.treeGroup = new THREE.Group(); scene.add(this.treeGroup);
-    this.index = buildIndex();
+    this.indices = { 1: buildIndex(1), 2: buildIndex(2), 4: buildIndex(4), 8: buildIndex(8) };
     this.schedE = new Scheduler(8); this.schedI = new Scheduler(16);
     this.elev = new ElevCache(this.schedE);
     this.texs = new TexCache(this.schedI, renderer);
     this.imgSrc = 'esri'; this.imgMaxZ = 17;
     this.maxZ = 17; this.splitF = 1.9; this.treesOn = true; this.treeDist = 2200; this.treeCount = 700;
     this.treeGeo = makeTreeGeometry(false); this.treeGeoB = makeTreeGeometry(true);
-    this.treeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.detGeo = treeGeometries(); this.near = null; this.nearCap = 0; this.nearR = 0; this.nearT = 0; this.nearHidden = []; this.treeNodes = []; this.physics = null; this.treeFilter = null; this.shadows = false; this.shadowRange = 80;
+    this._m4 = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._v1 = new THREE.Vector3(); this._v2 = new THREE.Vector3(); this._col = new THREE.Color(); this._up = new THREE.Vector3(0, 1, 0); this._zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    this.treeMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     this.frustum = new THREE.Frustum(); this.tmpM = new THREE.Matrix4(); this.sph = new THREE.Sphere();
     this.frameNo = 0; this.built = 0; this.rendered = [];
     this.roots = [];
     this.reset();
   }
   setQuality(q) {
-    const Q = { baixa: [17, 1.25, true, 700, 220], media: [18, 1.7, true, 1500, 450], alta: [19, 2.2, true, 2600, 900] }[q];
+    const Q = { baixa: [17, 1.25, true, 450, 160], media: [18, 1.7, true, 800, 330], alta: [19, 2.2, true, 1300, 600] }[q];
     [this.maxZ, this.splitF, this.treesOn, this.treeDist, this.treeCount] = Q;
+    this.coarseZ = { baixa: 16, media: 12, alta: 0 }[q]; // até esse zoom a malha usa metade dos triângulos (terreno distante)
     this.imgMaxZ = Math.min(IMAGERY[this.imgSrc].maxZ, this.maxZ);
   }
   setImagery(src) { this.imgSrc = src; this.imgMaxZ = Math.min(IMAGERY[src].maxZ, this.maxZ); this.reset(); this.texs.clear(); }
@@ -485,6 +507,13 @@ export class Terrain {
       }
     }
     return { h: 0, ok: false };
+  }
+  // pede o relevo mais detalhado (zoom 13) do ponto, mesmo que nenhum tile de terreno o esteja usando ainda
+  needElev(x, z) {
+    const f = this.frame; let mx = f.localToMx(x); const my = f.localToMy(z);
+    mx = ((mx + MERC_MAX) % (2 * MERC_MAX) + 2 * MERC_MAX) % (2 * MERC_MAX) - MERC_MAX;
+    const ts = tileSize(ELEV_MAX_Z);
+    this.elev.request(ELEV_MAX_Z, Math.floor((mx + MERC_MAX) / ts), Math.floor((MERC_MAX - my) / ts), 1);
   }
   // cor média da imagem de satélite (sRGB 0-255) na posição local, ou null
   colorAt(x, z) {
@@ -520,6 +549,7 @@ export class Terrain {
       const u = n.mesh.material.uniforms;
       u.uTileRel.value.set(this.frame.mercToLocalX(n.minX) - C.x, this.frame.mercToLocalZ(n.maxY) - C.z);
       u.uTileSize.value = n.size * k;
+      const dx = (n.minX * k) % 64, dz = (-n.maxY * k) % 64; u.uDetOff.value.set(dx < 0 ? dx + 64 : dx, dz < 0 ? dz + 64 : dz);
       n.mesh.visible = true;
     }
     if (this.treesOn) this.updateTrees(C);
@@ -617,14 +647,75 @@ export class Terrain {
         if (n.trees) {
           n.trees.position.set(this.frame.mercToLocalX(n.minX) - C.x, 0, this.frame.mercToLocalZ(n.maxY) - C.z);
           const sc = this.frame.k / n.treeK; n.trees.scale.set(sc, 1, sc);
-          n.trees.visible = true; this.rendered.push(n);
+          n.trees.visible = true; n.trees.castShadow = this.shadows && n._d < this.shadowRange + 60; this.rendered.push(n); this.treeNodes.push(n);
         }
         return;
       }
       if (n.children) n.children.forEach(walk);
     };
-    this.treeBudget = 2;
+    this.treeBudget = 2; this.treeNodes.length = 0;
     // garante que árvores sejam escondidas no próximo quadro
+    this.roots.forEach(walk);
+    this.updateNearTrees(C);
+  }
+  // LOD das árvores: as mais próximas trocam o modelo simples por um detalhado (tronco com casca, galhos, copa)
+  setTreeLOD(bark, leaf, cap, radius, shadows) {
+    this.shadows = shadows;
+    for (const m of Object.values(this.near || {})) { this.treeGroup.remove(m); m.dispose(); }
+    this.near = null; this.nearCap = cap; this.nearR = radius;
+    for (const h of this.nearHidden) if (h[0].trees) { h[0].trees.setMatrixAt(h[1], h[2]); h[0].trees.instanceMatrix.needsUpdate = true; }
+    this.nearHidden.length = 0; this.nearT = 0;
+    if (!cap) return;
+    this.near = {};
+    for (const k of ['broad', 'conifer']) { const im = new THREE.InstancedMesh(this.detGeo[k], [bark, leaf], cap); im.count = 0; im.frustumCulled = false; im.castShadow = shadows; im.receiveShadow = shadows; this.treeGroup.add(im); this.near[k] = im; }
+  }
+  updateNearTrees(C) {
+    if (!this.near) return;
+    const f = this.frame, now = performance.now();
+    if (now - this.nearT > 280) {
+      this.nearT = now;
+      for (const h of this.nearHidden) if (h[0].trees) { h[0].trees.setMatrixAt(h[1], h[2]); h[0].trees.instanceMatrix.needsUpdate = true; }
+      this.nearHidden.length = 0;
+      const cand = [], R2 = this.nearR * this.nearR;
+      for (const n of this.treeNodes) {
+        if (!n.treeData || !n.trees) continue;
+        const ox = f.mercToLocalX(n.minX) - C.x, oz = f.mercToLocalZ(n.maxY) - C.z, sc = f.k / n.treeK;
+        if (ox > this.nearR || oz > this.nearR || ox + n.size * f.k < -this.nearR || oz + n.size * f.k < -this.nearR) continue;
+        n.treeData.forEach((t, i) => { const dx = ox + t.x * sc, dz = oz + t.z * sc, d = dx * dx + dz * dz; if (d < R2) cand.push([d, n, i, dx, dz]); });
+      }
+      cand.sort((a, b) => a[0] - b[0]);
+      this.nearMx = f.localToMx(C.x); this.nearMy = f.localToMy(C.z);
+      const cnt = { broad: 0, conifer: 0 }, M = this._m4, Q = this._q, P = this._v1, S = this._v2, col = this._col;
+      for (const [, n, i, dx, dz] of cand) {
+        const t = n.treeData[i], k = t.broad ? 'broad' : 'conifer';
+        if (cnt[k] >= this.nearCap) continue;
+        Q.setFromAxisAngle(this._up, t.rot);
+        this.near[k].setMatrixAt(cnt[k], M.compose(P.set(dx, t.y, dz), Q, S.set(t.w, t.th, t.w)));
+        this.near[k].setColorAt(cnt[k], col.setRGB(t.c[0], t.c[1], t.c[2]));
+        cnt[k]++;
+        const old = new THREE.Matrix4(); n.trees.getMatrixAt(i, old);
+        this.nearHidden.push([n, i, old]); n.trees.setMatrixAt(i, this._zero); n.trees.instanceMatrix.needsUpdate = true;
+      }
+      for (const k of ['broad', 'conifer']) { const im = this.near[k]; im.count = cnt[k]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
+    }
+    const x = f.mercToLocalX(this.nearMx) - C.x, z = f.mercToLocalZ(this.nearMy) - C.z;
+    this.near.broad.position.set(x, 0, z); this.near.conifer.position.set(x, 0, z);
+  }
+  refreshTrees(x0, z0, size) {
+    const f = this.frame;
+    const walk = (n) => {
+      if (n.z > TREE_Z) return;
+      const nx = f.mercToLocalX(n.minX), nz = f.mercToLocalZ(n.maxY), ns = n.size * f.k;
+      if (nx > x0 + size || nz > z0 + size || nx + ns < x0 || nz + ns < z0) return;
+      if (n.z === TREE_Z) {
+        if (!n.treesDone) return;
+        this.nearHidden = this.nearHidden.filter((h) => h[0] !== n); this.nearT = 0;
+        if (n.trees) { this.treeGroup.remove(n.trees); n.trees.dispose(); n.trees = null; n.treeData = null; }
+        if (n.treePg) { this.physics?.removeGroup(n.treePg); n.treePg = null; }
+        n.treesDone = false; return;
+      }
+      n.children?.forEach(walk);
+    };
     this.roots.forEach(walk);
   }
   buildTrees(n) {
@@ -635,7 +726,8 @@ export class Terrain {
     const ox = (n.wx - it.x * it.s) * ss, oy = (n.y - it.y * it.s) * ss;
     const rnd = mulberry(n.wx * 7919 + n.y * 104729);
     const sizeL = n.size * this.frame.k;
-    const mats = [], cols = [];
+    const mats = [], cols = [], data = [], items = [];
+    const ox0 = this.frame.mercToLocalX(n.minX), oz0 = this.frame.mercToLocalZ(n.maxY);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
     const snowLine = this.G.uSnowLine.value, upY = new THREE.Vector3(0, 1, 0);
     const tries = this.treeCount * 3;
@@ -654,22 +746,27 @@ export class Terrain {
       const hx = n.heightUV(u + 0.02, v) - n.heightUV(u - 0.02, v), hz = n.heightUV(u, v + 0.02) - n.heightUV(u, v - 0.02);
       const slope = Math.hypot(hx, hz) / (sizeL * 0.04);
       if (slope > 1.4) continue;
-      const th = broad ? 8 + rnd() * 12 : 9 + rnd() * 17 * (lum < 50 ? 1.2 : 0.8);
+      if (this.treeFilter && !this.treeFilter(ox0 + u * sizeL, oz0 + v * sizeL)) continue; // não nasce em rua, calçada nem dentro de casa
+      const th = broad ? 6 + rnd() * 9 : 9 + rnd() * 17 * (lum < 50 ? 1.2 : 0.8);
       p.set(u * sizeL, h - 0.5, v * sizeL);
-      q.setFromAxisAngle(upY, rnd() * 6.28);
-      const w = th * (broad ? 0.8 + rnd() * 0.4 : 0.55 + rnd() * 0.25);
+      const rot = rnd() * 6.28; q.setFromAxisAngle(upY, rot);
+      const w = th * (broad ? 0.75 + rnd() * 0.3 : 0.38 + rnd() * 0.17);
       s.set(w, th, w);
       m.compose(p, q, s); mats.push(m.clone());
       const snow = clamp((h - snowLine + 200) / 400, 0, 1) * 0.75;
       const c = 0.75 + rnd() * 0.5;
       cols.push([c * (1 - snow) + 16 * snow, c * (1 - snow) + 9 * snow, c * (1 - snow) + 19 * snow]);
+      data.push({ x: u * sizeL, z: v * sizeL, y: h - 0.5, th, w, rot, broad, c: [c * (1 - snow) + 3 * snow, c * (1 - snow) + 2.4 * snow, c * (1 - snow) + 3.2 * snow] });
+      // colisão só no tronco: raio do tronco, do chão até onde a copa começa — folhas e galhos não bloqueiam
+      items.push({ t: 'c', x: u * sizeL, z: v * sizeL, r: Math.max(0.15, w * 0.045), y0: h - 1.5, y1: h - 0.5 + th * (broad ? 0.42 : 0.2), walk: false, tag: 'tree', id: `tree:${n.wx}/${n.y}:${Math.round(u * 4096)}:${Math.round(v * 4096)}`, ax: u * sizeL, az: v * sizeL, ay: h + 1.1 });
     }
     if (!mats.length) return;
     const im = new THREE.InstancedMesh(broad ? this.treeGeoB : this.treeGeo, this.treeMat, mats.length);
     const col = new THREE.Color();
     mats.forEach((mm, i) => { im.setMatrixAt(i, mm); im.setColorAt(i, col.setRGB(...cols[i])); });
-    im.instanceMatrix.needsUpdate = true; im.frustumCulled = false; im.visible = false;
-    n.trees = im; n.treeK = this.frame.k;
+    im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); im.visible = false; im.castShadow = !!this.shadows;
+    n.trees = im; n.treeK = this.frame.k; n.treeData = data;
+    if (this.physics) n.treePg = this.physics.addGroup(n.minX, n.maxY, this.frame.k, sizeL, items);
     this.treeGroup.add(im);
   }
   get loading() { return this.schedE.pending + this.schedI.pending; }

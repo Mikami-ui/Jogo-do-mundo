@@ -177,3 +177,9 @@ kbd { font: 600 12px Inter; border: 1px solid var(--line); border-bottom-width: 
 #t-level { border-color: rgba(255,106,26,.7); color: #ffd9c2; }
 #spd-boost { font: 600 12px/1.3 'Barlow Condensed', sans-serif; letter-spacing: .12em; color: var(--dim); }
 @media (max-height: 420px) { .tb { width: 58px; height: 58px; } .tb.big { width: 76px; height: 76px; } .tb.sm { width: 54px; height: 38px; } #tbtns { bottom: calc(104px + var(--sab)); } }
+
+/* ---------- objetivos ---------- */
+#obj { position: absolute; left: calc(14px + var(--sal)); top: calc(176px + var(--sat)); font: 600 12px 'Barlow Condensed', sans-serif; letter-spacing: .08em; color: #ffd9c2; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+#act { position: absolute; left: 50%; bottom: calc(64px + var(--sab)); transform: translateX(-50%); pointer-events: auto; background: var(--acc); color: #160a03; border: 0; border-radius: 999px; padding: 11px 20px; font: 700 15px 'Barlow Condensed', sans-serif; letter-spacing: .08em; box-shadow: 0 4px 18px rgba(0,0,0,.45); white-space: nowrap; }
+#act.no { background: rgba(20,22,28,.8); color: var(--dim); border: 1px solid var(--line); pointer-events: none; }
+@media (max-width: 720px), (max-height: 500px) { #obj { top: calc(128px + var(--sat)); font-size: 11px; } #act { bottom: calc(18px + var(--sab)); font-size: 13px; padding: 9px 16px; } }

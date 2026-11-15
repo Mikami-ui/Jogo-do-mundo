@@ -21,6 +21,7 @@ O **analógico** (ou `WASD`) escolhe a direção do movimento, relativa à câme
 | Pular (no chão) · frear (voando) | `Espaço` · `S` | botão **PULAR / FREIO** |
 | Subir / descer pairando | `Espaço` / `Q` | olhar para cima/baixo e empurrar o analógico |
 | Planar de wingsuit | `X` | botão **PLANAR** |
+| Interagir com um objetivo | `E` | botão laranja que aparece perto do objetivo |
 | Acenar | `G` | botão **ACENAR** |
 | Trocar câmera | `C` | botão do olho |
 | Tirar foto | `P` | botão da câmera |
@@ -43,6 +44,9 @@ O **analógico** (ou `WASD`) escolhe a direção do movimento, relativa à câme
 - **Fotos** (`P` ou botão da câmera): salva a imagem do voo com a legenda do lugar.
 - **Favoritos**: salve lugares para voltar depois.
 - **Personagem**: cores do traje, dos detalhes, do capacete e do rastro de vapor.
+- **Calçadas com meio-fio, postes de luz, bancos, placas de PARE, pedras e muros de quintal**; casas com porta, moldura nas janelas, beiral, calha e chaminé.
+- **Sombras do sol** de casas, árvores, postes e do personagem, inclusive sobre o chão.
+- **Objetivos interativos** em casas, árvores (tronco), postes, bancos, placas, pedras e muros, salvos no aparelho.
 - **Florestas 3D** geradas onde a imagem de satélite mostra mata (pinheiros nas regiões frias, copas arredondadas nas quentes).
 - **Céu físico** (espalhamento Rayleigh + Mie): nascer/pôr do sol, crepúsculo, estrelas, céu negro e borda azul da atmosfera no espaço; neblina atmosférica real à distância.
 - **Sol na posição astronômica real** para a hora, a data e o lugar; luzes das cidades à noite vistas do espaço (NASA Black Marble).
@@ -51,6 +55,38 @@ O **analógico** (ou `WASD`) escolhe a direção do movimento, relativa à câme
 - **Física de voo arcade**: pairar, mergulhar, turbo exponencial, planeio de wingsuit, pouso, andar, correr e pular; colisão com o relevo e a água.
 - **Efeitos**: estrondo e anel da barreira do som, cone de vapor e onda de choque supersônica, rastros de vapor nas mãos, spray de neve/água/poeira rente ao chão, desfoque de velocidade, tremor de câmera e som procedural (vento, turbo, estrondo, trovão).
 - **HUD**: nome do lugar ao vivo, coordenadas, altitude, velocidade em km/h e número Mach, bússola, hora local, estação e clima.
+
+## Colisão, objetivos e gráficos
+
+**Camadas de colisão** (`src/collision.js`):
+
+| Camada | Bit | O que é | Colide com (máscara) |
+|---|---|---|---|
+| `PLAYER` | 1 | cilindro do jogador (raio 34 cm, 1,8 m) | `GROUND` + `STATIC` (e detecta `INTERACT`) |
+| `GROUND` | 2 | terreno, pista, calçada, ponte — só dão a altura do piso | `PLAYER` |
+| `STATIC` | 4 | paredes, troncos, pedras, muros, postes, bancos, placas | `PLAYER` |
+| `INTERACT` | 8 | alcance dos objetivos (sensor, nunca bloqueia) | `PLAYER` |
+
+Formas: círculo (tronco, poste, placa, pedra), caixa orientada (muro, banco) e prisma poligonal só para a planta das casas.
+Árvores colidem **apenas no tronco**; copa e galhos não têm colisor. O jogador desliza em paredes e quinas, sobe degraus de até 45 cm
+(meio-fio, pedras baixas) e pode ficar em cima de telhados, muros, bancos e pedras. A câmera também não atravessa paredes.
+
+**Objetivos** (`src/objectives.js`): um único sistema para todos os elementos com colisor etiquetado — casa (porta), tronco de árvore,
+poste, banco, placa, pedra e muro. Losango laranja = pendente, verde = concluído. Interação por `E` ou pelo botão na tela, só a pé,
+a até 3 m e com linha de visão livre (não vale através de parede). Os concluídos ficam salvos no aparelho. Folhas não têm objetivo.
+
+**Qualidade gráfica** (menu → Ajustes): Automática (padrão; desce um nível se o jogo ficar abaixo de 24 qps), Baixa, Média e Alta.
+
+| | Baixa | Média | Alta |
+|---|---|---|---|
+| Materiais | simples (sem normal map) | PBR: albedo + normal + rugosidade | PBR |
+| Sombras do sol | não | 1024 px, 55 m | 2048 px suaves, 110 m |
+| Resolução | 0,75× | até 1,25× | até 2× |
+| Árvores detalhadas de perto | não | 110 (65 m) | 220 (110 m) |
+| Custo medido numa rua de Parobé | ~150 desenhos, ~330 mil triângulos | ~235 desenhos, ~660 mil triângulos | ~360 desenhos, ~1,1 milhão de triângulos |
+
+Todas as texturas (reboco, telha, asfalto, calçada, casca, folhagem, pedra, detalhe do chão) são geradas no aparelho em 256 px,
+repetíveis, e compartilhadas: 9 materiais para o cenário inteiro.
 
 ## Publicar (GitHub Pages)
 
