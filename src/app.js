@@ -64,7 +64,14 @@ const camera = new THREE.PerspectiveCamera(65, 1, 0.3, 4e7);
 const post = new Post(renderer);
 let pixelRatio = 1;
 // qualidade em uso: a escolhida, ou — no modo automático — a que o aparelho aguenta (começa pela do tipo de aparelho)
-let Q = S.quality === 'auto' ? (matchMedia('(pointer: coarse)').matches ? 'media' : 'alta') : S.quality;
+let safeMode = false;
+try { safeMode = localStorage.getItem('jdm-safe') === '1'; } catch (e) { /* ok */ }
+let Q = safeMode ? 'baixa' : S.quality === 'auto' ? (matchMedia('(pointer: coarse)').matches ? 'media' : 'alta') : S.quality;
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  try { localStorage.setItem('jdm-safe', '1'); } catch (er) { /* ok */ }
+  reportError(new Error('O aparelho ficou sem memória de vídeo. Toque em Recarregar: o jogo volta na qualidade Baixa.'));
+});
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   const maxPR = { baixa: 0.75, media: 1.25, alta: 2 }[Q];
@@ -322,7 +329,7 @@ function seg(id, key, onChange) {
 seg('set-ts', 'ts');
 seg('set-season', 'season');
 seg('set-weather', 'weather', () => applyWeather());
-seg('set-quality', 'quality', (v) => { Q = v === 'auto' ? (isTouch ? 'media' : 'alta') : v; applyQuality(); });
+seg('set-quality', 'quality', (v) => { try { localStorage.removeItem('jdm-safe'); } catch (e) { /* ok */ } Q = v === 'auto' ? (isTouch ? 'media' : 'alta') : v; applyQuality(); });
 seg('set-img', 'img', (v) => { terrain.setImagery(v); globe.loadTextures(v); updateCredits(); });
 const chk = (id, key, fn) => { const el = $(id); el.checked = !!S[key]; el.onchange = () => { S[key] = el.checked; saveS(); fn?.(el.checked); }; };
 chk('set-now', 'now', (v) => { hourOffsetMs = 0; if (!v) setHour(S.hour); });
@@ -844,7 +851,7 @@ applyWeather();
 resize();
 G.uSunDir.value.set(0.3, 0.6, -0.5).normalize();
 globe.loadTextures(S.img);
-$('boot').textContent = 'Escolha um lugar para começar';
+$('boot').textContent = 'Escolha um lugar para começar · versão ' + (typeof __BUILD__ !== 'undefined' ? __BUILD__ : 'dev');
 loop();
 // posição inicial atrás do menu (cenário de fundo)
 frame.set(45.905, 6.86); player.y = 2600; rig.yaw = 205 * DEG; player.launch(rig.yaw, 0, 0);

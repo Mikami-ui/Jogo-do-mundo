@@ -5,7 +5,8 @@ set -e
 cd "$(dirname "$0")"
 NM="${NM:-$PWD/node_modules}"
 ESBUILD="${ESBUILD:-npx esbuild}"
-$ESBUILD src/app.js --bundle --format=esm --external:three --minify --outfile=game.js \
+BUILD="$(date -u +%m%d-%H%M)"
+$ESBUILD src/app.js --bundle --format=esm --external:three --minify --outfile=game.js "--define:__BUILD__=\"$BUILD\"" \
   "--alias:three/addons/loaders/GLTFLoader.js=$NM/three/examples/jsm/loaders/GLTFLoader.js" \
   --loader:.html=text --loader:.css=text --log-level=warning
 python3 - <<'PY'
@@ -16,7 +17,10 @@ m = open('src/main.js').read()
 m = re.sub(r"game\.js\?v=[A-Za-z0-9]+", "game.js?v=" + v, m)
 open('src/main.js', 'w').write(m)
 shell = open('index.html').read()
-tag = '<script type="module" src="src/main.js"></script>'
+shell = re.sub(r'src="src/main\.js(\?v=[A-Za-z0-9]+)?"', 'src="src/main.js?v=' + v + '"', shell)
+open('index.html', 'w').write(shell)
+open('jogar.html', 'w').write(shell)  # mesma casca num endereço novo, que nenhum aparelho tem guardado
+tag = '<script type="module" src="src/main.js?v=' + v + '"></script>'
 assert tag in shell
 single = shell.replace(tag, '<script type="module">\n' + js.replace('</script', '<\\/script') + '\n</script>')
 open('jogo-do-mundo.html', 'w').write(single)
