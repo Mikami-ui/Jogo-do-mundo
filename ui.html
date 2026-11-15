@@ -1,0 +1,160 @@
+<div id="hud" class="hidden">
+  <div id="labels"></div>
+  <div id="reticle"></div>
+  <div id="compass"><div id="compass-strip"></div><div id="compass-mark"></div></div>
+  <div id="goal"></div>
+  <div id="wp"><i></i><span></span></div>
+  <canvas id="minimap" title="Abrir mapa"></canvas>
+  <div id="obj"></div>
+  <button id="act" class="hidden"></button>
+  <div id="hint"></div>
+  <div id="toast"></div>
+  <div id="loc">
+    <div id="loc-name">—</div>
+    <div id="loc-sub"></div>
+    <div id="loc-coord"></div>
+    <div id="loc-wx"></div>
+  </div>
+  <div id="spd">
+    <div id="spd-alt"></div>
+    <div id="spd-row"><span id="spd-num">0</span><span id="spd-unit">km/h</span></div>
+    <div id="spd-mach"></div>
+    <div id="spd-boost"></div>
+  </div>
+  <div id="loading"></div>
+  <div id="topbar">
+    <button id="btn-photo" class="ib" title="Tirar foto (P)" aria-label="Tirar foto"><svg viewBox="0 0 24 24"><path d="M4 7h3l2-2h6l2 2h3v12H4z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+    <button id="btn-cam" class="ib" title="Trocar câmera (C)" aria-label="Trocar câmera"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+    <button id="btn-menu" class="ib" title="Menu (M)" aria-label="Abrir menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+  </div>
+  <div id="touch" class="hidden">
+    <div id="stick"><div id="stick-knob"></div></div>
+    <div id="tbtns">
+      <button id="t-level" class="tb sm">BOOST 2</button>
+      <button id="t-x" class="tb sm">PLANAR</button>
+      <button id="t-fly" class="tb">POUSAR</button>
+      <button id="t-a" class="tb">FREIO</button>
+      <button id="t-boost" class="tb big">TURBO</button>
+    </div>
+  </div>
+</div>
+
+<div id="flash"></div>
+<div id="start">
+  <div class="start-inner">
+    <div class="brand"><span class="dot"></span>SIMULADOR DA TERRA</div>
+    <h1>Jogo do <em>Mundo</em></h1>
+    <p class="lead">Voe por qualquer lugar do planeta com relevo real, imagens de satélite, clima ao vivo, estações do ano e hora do dia. Acelere até passar a barreira do som ou suba até a órbita.</p>
+    <div class="search">
+      <input id="start-q" type="search" placeholder="Buscar um lugar (ex.: Chamonix, Pão de Açúcar, Monte Fuji)" autocomplete="off">
+      <button id="start-go">Buscar</button>
+    </div>
+    <div id="start-results" class="results"></div>
+    <div class="label">Lugares em destaque</div>
+    <div id="places" class="places"></div>
+    <div class="start-foot">
+      <button id="start-geo" class="ghost">📍 Minha localização</button>
+      <span class="credits">Relevo: Terrain Tiles (AWS/Mapzen) · Clima: Open-Meteo · Lugares, casas e água: © OpenStreetMap (OpenFreeMap) · <span id="cred-img"></span></span>
+    </div>
+  </div>
+  <div id="boot">Carregando motor 3D…</div>
+</div>
+
+<div id="menu" class="hidden">
+  <div class="menu-panel">
+    <div class="menu-head">
+      <div class="tabs">
+        <button data-tab="lugares" class="on">Lugares</button>
+        <button data-tab="mapa">Mapa</button>
+        <button data-tab="desafios">Desafios</button>
+        <button data-tab="personagem">Personagem</button>
+        <button data-tab="ajustes">Ajustes</button>
+        <button data-tab="controles">Controles</button>
+      </div>
+      <button id="menu-close" class="ib" aria-label="Fechar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="tab" id="tab-lugares">
+      <div class="search">
+        <input id="menu-q" type="search" placeholder="Buscar qualquer lugar do mundo" autocomplete="off">
+        <button id="menu-go">Buscar</button>
+      </div>
+      <div id="menu-results" class="results"></div>
+      <div class="label">Meus favoritos</div>
+      <button id="fav-add" class="ghost">★ Salvar o lugar onde estou</button>
+      <div id="fav-list" class="results"></div>
+      <div class="label">Lugares em destaque</div>
+      <div id="menu-places" class="places"></div>
+    </div>
+    <div class="tab hidden" id="tab-mapa">
+      <div id="wmap-wrap">
+        <canvas id="wmap"></canvas>
+        <div id="wmap-zoom"><button id="wmap-in" class="ib">+</button><button id="wmap-out" class="ib">−</button><button id="wmap-me" class="ib" title="Centralizar em mim">◎</button></div>
+      </div>
+      <div id="wmap-info" class="note">Arraste para mover, use dois dedos ou a roda do mouse para aproximar. Toque num ponto para escolher um destino.</div>
+      <div id="wmap-act" class="hidden">
+        <button id="wmap-go" class="act">Voar para cá agora</button>
+        <button id="wmap-dest" class="ghost">Marcar como destino</button>
+      </div>
+    </div>
+    <div class="tab hidden" id="tab-desafios">
+      <div class="label" style="margin-top:4px">Desafios</div>
+      <div class="chal">
+        <button id="ch-rings" class="place"><span class="tag">TEMPO</span><b>Percurso de anéis</b><small>12 anéis à sua frente, acompanhando o relevo. Passe por todos no menor tempo.</small></button>
+        <button id="ch-stop" class="place hidden"><span class="tag">ATIVO</span><b>Encerrar desafio</b><small>Cancela o desafio ou o destino atual.</small></button>
+      </div>
+      <div class="label">Corrida até uma cidade</div>
+      <div id="ch-races" class="results"></div>
+      <div class="label">Objetivos do cenário</div>
+      <div id="ch-obj" class="stats"></div>
+      <p class="note">Losangos laranja marcam objetivos em casas, troncos de árvores, postes, bancos, placas, pedras e muros. Chegue perto a pé e use <kbd>E</kbd> (ou toque no botão) para concluir; os concluídos ficam verdes e salvos.</p>
+      <div class="label">Recordes</div>
+      <div id="ch-stats" class="stats"></div>
+      <div class="label">Monumentos descobertos <span id="ch-found-n"></span></div>
+      <div id="ch-found" class="found"></div>
+    </div>
+    <div class="tab hidden" id="tab-personagem">
+      <div class="row"><label>Cor do traje</label><div class="ctl sw" id="sw-suit" data-key="suit" data-opts="#1c3f9e,#b3202a,#1b1d24,#1f7a4a,#5b2a9e,#d9dde3,#d9a514,#0f8f9e"></div></div>
+      <div class="row"><label>Detalhes e luzes</label><div class="ctl sw" id="sw-acc" data-key="acc" data-opts="#ff6a1a,#19d3ff,#9dff2a,#ff3d9a,#ffffff,#ffd21a,#ff2a2a"></div></div>
+      <div class="row"><label>Asas do wingsuit</label><div class="ctl sw" id="sw-helmet" data-key="helmet" data-opts="#eeeeee,#20232b,#c9a227,#b3202a,#1c3f9e"></div></div>
+      <div class="row"><label>Rastro de vapor</label><div class="ctl sw" id="sw-trail" data-key="trail" data-opts="#ffffff,#ff6a1a,#19d3ff,#ff3d9a,#9dff2a,#ffd21a"></div></div>
+      <p class="note">As cores mudam na hora — feche o menu para ver o personagem.</p>
+    </div>
+    <div class="tab hidden" id="tab-ajustes">
+      <div class="row"><label>Hora do dia</label>
+        <div class="ctl"><label class="chk"><input type="checkbox" id="set-now" checked> Agora (hora real local)</label>
+        <input type="range" id="set-hour" min="0" max="24" step="0.25" value="12"><span id="set-hour-v" class="val">12:00</span></div></div>
+      <div class="row"><label>Passagem do tempo</label><div class="ctl seg" id="set-ts" data-opts="1:Real,60:60×,600:600×"></div></div>
+      <div class="row"><label>Estação do ano</label><div class="ctl seg" id="set-season" data-opts="auto:Auto,spring:Primavera,summer:Verão,autumn:Outono,winter:Inverno"></div></div>
+      <div class="row"><label>Clima</label><div class="ctl seg" id="set-weather" data-opts="live:Ao vivo,clear:Limpo,cloudy:Nublado,rain:Chuva,snow:Neve,storm:Tempestade,fog:Neblina"></div></div>
+      <div class="row"><label>Qualidade gráfica</label><div class="ctl seg" id="set-quality" data-opts="auto:Automática,baixa:Baixa,media:Média,alta:Alta"></div></div>
+      <div class="row"><label>Imagens de satélite</label><div class="ctl seg" id="set-img" data-opts="esri:Esri (detalhada),s2:Sentinel-2"></div></div>
+      <div class="row"><label>Opções</label><div class="ctl">
+        <label class="chk"><input type="checkbox" id="set-bld" checked> Casas, prédios, lagos e rios 3D</label>
+        <label class="chk"><input type="checkbox" id="set-lbl" checked> Nomes de bairros, cidades e picos</label>
+        <label class="chk"><input type="checkbox" id="set-snd" checked> Som</label>
+        <label class="chk"><input type="checkbox" id="set-inv"> Inverter eixo vertical</label>
+        <label class="chk"><input type="checkbox" id="set-blur" checked> Desfoque de velocidade</label>
+      </div></div>
+      <div class="row"><label>Sensibilidade</label><div class="ctl"><input type="range" id="set-sens" min="0.3" max="2.5" step="0.1" value="1"></div></div>
+    </div>
+    <div class="tab hidden" id="tab-controles">
+      <div class="keys">
+        <div><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd><span>Mover na direção da câmera (andar, nadar, voar)</span></div>
+        <div>mouse / <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd><span>Girar a visão (clique na tela para usar o mouse). Voando, você vai para onde olha</span></div>
+        <div><kbd>Shift</kbd><span>Turbo no ar · correr no chão · nadar rápido</span></div>
+        <div><kbd>1</kbd>–<kbd>6</kbd><span>Escolher o boost: Passeio, Rápido, Supersônico, Hipersônico, Orbital, Máximo</span></div>
+        <div><kbd>F</kbd><span>Decolar / pousar</span></div>
+        <div><kbd>Espaço</kbd><span>Pular (no chão) · subir (pairando). <kbd>Q</kbd> desce</span></div>
+        <div><kbd>X</kbd><span>Planar de wingsuit</span></div>
+        <div><kbd>E</kbd><span>Interagir com um objetivo (losango laranja)</span></div>
+        <div><kbd>G</kbd><span>Acenar</span></div>
+        <div><kbd>C</kbd><span>Trocar câmera</span></div>
+        <div><kbd>P</kbd><span>Tirar foto</span></div>
+        <div><kbd>R</kbd><span>Começar percurso de anéis</span></div>
+        <div><kbd>M</kbd> / <kbd>Esc</kbd><span>Menu</span> · <kbd>T</kbd><span>Avançar 1 hora</span></div>
+      </div>
+      <p class="note">No celular: o <b>analógico</b> (lado esquerdo) escolhe a direção; <b>arrastar o lado direito</b> gira a visão — voando, você vai para onde olha. Segure <b>TURBO</b> para acelerar até a velocidade do <b>BOOST</b> escolhido (toque nele para trocar), <b>POUSAR</b> desce até o chão, <b>PLANAR</b> abre o wingsuit. No chão, <b>CORRER</b> e <b>PULAR</b>; na água o personagem nada sozinho.</p>
+      <p class="note">Fontes: relevo Terrain Tiles (Mapzen/AWS) · <span id="cred-img2"></span> · luzes noturnas NASA Black Marble · clima Open-Meteo · nomes, casas, lagos e rios © colaboradores do OpenStreetMap (OpenFreeMap).</p>
+    </div>
+  </div>
+</div>

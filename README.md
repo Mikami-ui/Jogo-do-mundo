@@ -95,6 +95,11 @@ escolha a branch e a pasta `/ (root)`. O jogo fica em `https://<usuário>.github
 
 Para testar localmente: `python3 -m http.server` na pasta e abra `http://localhost:8000`.
 
+**Estrutura:** `index.html` é só uma casca. O jogo inteiro — código, interface (`ui.html`) e estilo (`style.css`) — é empacotado em
+`game.js` por `./build.sh` (precisa de `npm install`). `src/main.js` é o carregador e aponta para `game.js?v=<versão>`.
+Depois de mudar qualquer arquivo em `src/`, `ui.html` ou `style.css`, rode `./build.sh` e publique `game.js` junto.
+Assim uma cópia antiga da página guardada no aparelho continua funcionando com o jogo novo, e arquivos de versões diferentes nunca se misturam.
+
 ## Créditos dos dados
 
 Relevo: Terrain Tiles (Mapzen / AWS Open Data) · Imagens: Esri, Maxar, Earthstar Geographics / Sentinel-2 cloudless © EOX (Copernicus) ·
