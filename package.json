@@ -1,0 +1,6 @@
+{
+  "name": "jogo-do-mundo",
+  "private": true,
+  "scripts": { "build": "./build.sh" },
+  "devDependencies": { "esbuild": "^0.24.0", "three": "0.170.0" }
+}
