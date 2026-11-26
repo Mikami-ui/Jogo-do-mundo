@@ -417,7 +417,7 @@ class Node {
       nor[k * 3] = -dx * il; nor[k * 3 + 1] = il; nor[k * 3 + 2] = -dz * il;
     }
     const base = (N + 1) * (N + 1);
-    const skirt = Math.max(this.size * tm.frame.k * 0.02, 5, (mx - mn) * 0.5);
+    const skirt = Math.max(this.size * tm.frame.k * 0.02, 5, mx - mn); // a borda desce o desnível inteiro do pedaço: fecha as frestas nos paredões
     const edges = [(k) => [k, 0], (k) => [k, N], (k) => [0, k], (k) => [N, k]];
     edges.forEach((e, s) => {
       for (let k = 0; k <= N; k++) {

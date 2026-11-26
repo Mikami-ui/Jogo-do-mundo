@@ -1,6 +1,8 @@
 // Monumentos famosos modelados à mão (formas simples), colocados nas coordenadas reais.
 import * as THREE from 'three';
 import { RE, lonToMx, latToMy } from './geo.js';
+import { getTextures } from './textures.js';
+import { LAYER } from './collision.js';
 
 const mats = new Map();
 const M = (hex, emissive = 0) => {
@@ -29,12 +31,37 @@ function eiffel() {
   return g;
 }
 function liberty() {
-  const g = new THREE.Group(), v = 0x5fae98, s = 0x9c958a;
-  cyl(g, 30, 30, 6, 0, 0, 0, s, 11); box(g, 20, 27, 20, 0, 6, 0, s); box(g, 14, 14, 14, 0, 33, 0, s);
-  cyl(g, 5.5, 3.2, 34, 0, 47, 0, v, 12); sph(g, 2.6, 0, 83, 0, v);
-  const arm = cyl(g, 1.4, 1.1, 14, 3.2, 80, 0, v, 8); arm.rotation.z = -0.22;
-  const torch = new THREE.Mesh(new THREE.SphereGeometry(1.5, 10, 8), M(0xffc94a, 1.6)); torch.position.set(4.9, 95, 0); g.add(torch);
-  for (let i = 0; i < 7; i++) { const sp = cyl(g, 0.35, 0.05, 3.2, 0, 85, 0, v, 5); const a = -1.2 + i * 0.4; sp.position.set(Math.sin(a) * 2.6, 85.4 + Math.cos(a) * 1.6, 0); sp.rotation.z = -a; }
+  const g = new THREE.Group(), v = 0x5fae98, gr = 0xb8b1a3, gr2 = 0xa49d8f;
+  const patina = new THREE.MeshStandardMaterial({ color: v, roughness: 0.55, metalness: 0.25 });
+  const add = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+  // Forte Wood: estrela de 11 pontas, 6 m de altura
+  const star = new THREE.Shape();
+  for (let i = 0; i < 22; i++) { const a = (i / 22) * Math.PI * 2, r = i % 2 ? 31 : 46; const x = Math.cos(a) * r, y = Math.sin(a) * r; i ? star.lineTo(x, y) : star.moveTo(x, y); }
+  const sg = new THREE.ExtrudeGeometry(star, { depth: 7, bevelEnabled: false }); sg.rotateX(-Math.PI / 2); sg.translate(0, -1, 0);
+  add(sg, M(gr2));
+  // pedestal (até 47 m): base escalonada, corpo, cornija e balcão
+  box(g, 32, 4, 32, 0, 6, 0, gr); box(g, 26, 4, 26, 0, 10, 0, gr);
+  const ped = new THREE.CylinderGeometry(9.5 * Math.SQRT2, 11.5 * Math.SQRT2, 26, 4); ped.rotateY(Math.PI / 4); add(ped, M(gr), 0, 27, 0);
+  box(g, 22, 3, 22, 0, 40, 0, gr2); box(g, 17, 4, 17, 0, 43, 0, gr);
+  // manto (perfil de revolução), pescoço e cabeça
+  const prof = [[0, 0], [6.4, 0], [6.6, 2], [6.0, 7], [5.3, 13], [4.8, 18], [4.3, 22], [3.9, 25], [3.5, 27], [2.9, 28.5], [1.2, 29.5], [0, 29.6]].map((p) => new THREE.Vector2(p[0], p[1]));
+  add(new THREE.LatheGeometry(prof, 20), patina, 0, 47, 0);
+  add(new THREE.CylinderGeometry(1.0, 1.2, 2.2, 10), patina, 0, 77.4, 0);
+  const head = add(new THREE.SphereGeometry(2.2, 16, 12), patina, 0, 80.2, 0.2); head.scale.set(0.95, 1.2, 1.0);
+  // coroa: faixa e 7 raios abertos para cima e para a frente (+z)
+  add(new THREE.CylinderGeometry(2.4, 2.4, 0.9, 16), patina, 0, 82.0, 0.2);
+  for (let i = 0; i < 7; i++) {
+    const a = -1.05 + i * 0.35, ray = new THREE.Mesh(new THREE.ConeGeometry(0.35, 3.6, 5), patina);
+    ray.position.set(Math.sin(a) * 2.9, 83.0 + Math.cos(a) * 0.9, 0.2 + Math.cos(a) * 1.2); ray.rotation.set(0.55 * Math.cos(a), 0, -a); g.add(ray);
+  }
+  // braço direito erguido com a tocha (ponta da chama a 93 m)
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.25, 12.8, 10), patina); arm.position.set(4.3, 81.5, 0.3); arm.rotation.z = -0.24; g.add(arm);
+  add(new THREE.CylinderGeometry(0.75, 0.55, 2.6, 10), patina, 5.85, 88.9, 0.3);
+  add(new THREE.CylinderGeometry(1.5, 1.1, 0.5, 14), M(0xc9a227), 5.85, 90.4, 0.3);
+  add(new THREE.ConeGeometry(0.9, 2.6, 10), M(0xffc94a, 1.6), 5.85, 91.9, 0.3);
+  // braço esquerdo dobrado segurando a tábua (4 × 7 m)
+  const fa = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.9, 6, 10), patina); fa.position.set(-4.6, 70, 1.2); fa.rotation.set(0.9, 0, 0.35); g.add(fa);
+  const tab = new THREE.Mesh(new THREE.BoxGeometry(4.1, 7.2, 0.8), patina); tab.position.set(-4.9, 68.5, 2.3); tab.rotation.set(-0.35, 0, 0.12); g.add(tab);
   return g;
 }
 function bigben() {
@@ -51,8 +78,13 @@ function burj() {
   return g;
 }
 function pyramid(base, h) {
-  const g = new THREE.Group();
-  const m = new THREE.Mesh(new THREE.ConeGeometry(base / Math.SQRT2, h, 4), M(0xc9a96e)); m.position.y = h / 2; m.rotation.y = Math.PI / 4; g.add(m);
+  const g = new THREE.Group(), D = 30; // a base continua 30 m para dentro do chão
+  const T = getTextures(), map = T.rock.clone(), nm = T.rockN.clone();
+  for (const t of [map, nm]) { t.repeat.set(26, 16); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  const mat = new THREE.MeshStandardMaterial({ color: 0xd8bf8f, map, normalMap: nm, normalScale: new THREE.Vector2(1.6, 1.6), roughness: 0.95 });
+  const r = (base / Math.SQRT2) * (h + D) / h;
+  const geo = new THREE.ConeGeometry(r, h + D, 4, 12); geo.translate(0, (h + D) / 2 - D, 0); geo.rotateY(Math.PI / 4);
+  const m = new THREE.Mesh(geo, mat); g.add(m);
   return g;
 }
 function taj() {
@@ -104,22 +136,83 @@ function eye() {
 }
 
 export const LANDMARKS = [
-  { id: 'cristo', name: 'Cristo Redentor', lat: -22.95192, lon: -43.21049, r: 25, rot: 15, build: cristo },
-  { id: 'eiffel', name: 'Torre Eiffel', lat: 48.85837, lon: 2.29448, r: 75, rot: 45, build: eiffel },
-  { id: 'liberdade', name: 'Estátua da Liberdade', lat: 40.68925, lon: -74.0445, r: 60, rot: -35, build: liberty },
-  { id: 'bigben', name: 'Big Ben', lat: 51.50073, lon: -0.12463, r: 18, rot: 10, build: bigben },
-  { id: 'eye', name: 'London Eye', lat: 51.50329, lon: -0.11955, r: 45, rot: 65, build: eye },
-  { id: 'burj', name: 'Burj Khalifa', lat: 25.1972, lon: 55.27438, r: 70, rot: 0, build: burj },
-  { id: 'quéops', name: 'Pirâmide de Quéops', lat: 29.97923, lon: 31.13423, r: 140, rot: 0, build: () => pyramid(230, 139) },
-  { id: 'quéfren', name: 'Pirâmide de Quéfren', lat: 29.97611, lon: 31.13077, r: 130, rot: 0, build: () => pyramid(215, 136) },
-  { id: 'miquerinos', name: 'Pirâmide de Miquerinos', lat: 29.97252, lon: 31.12825, r: 70, rot: 0, build: () => pyramid(105, 65) },
-  { id: 'taj', name: 'Taj Mahal', lat: 27.17515, lon: 78.04215, r: 75, rot: 0, build: taj },
-  { id: 'empire', name: 'Empire State', lat: 40.74844, lon: -73.98566, r: 75, rot: 29, build: empire },
-  { id: 'cn', name: 'CN Tower', lat: 43.64257, lon: -79.38706, r: 40, rot: 0, build: cntower },
-  { id: 'skytree', name: 'Tokyo Skytree', lat: 35.71006, lon: 139.8107, r: 50, rot: 0, build: skytree },
-  { id: 'washington', name: 'Monumento a Washington', lat: 38.88948, lon: -77.03528, r: 25, rot: 0, build: washington },
-  { id: 'arch', name: 'Gateway Arch', lat: 38.62469, lon: -90.18478, r: 110, rot: 80, build: arch },
+  { id: 'cristo', foot: 4, name: 'Cristo Redentor', lat: -22.95192, lon: -43.21049, r: 25, rot: 15, build: cristo },
+  { id: 'eiffel', foot: 55, name: 'Torre Eiffel', lat: 48.85837, lon: 2.29448, r: 75, rot: 45, build: eiffel },
+  { id: 'liberdade', foot: 20, name: 'Estátua da Liberdade', lat: 40.68925, lon: -74.0445, r: 60, rot: -45, build: liberty },
+  { id: 'bigben', foot: 7, name: 'Big Ben', lat: 51.50073, lon: -0.12463, r: 18, rot: 10, build: bigben },
+  { id: 'eye', foot: 15, name: 'London Eye', lat: 51.50329, lon: -0.11955, r: 45, rot: 65, build: eye },
+  { id: 'burj', foot: 28, name: 'Burj Khalifa', lat: 25.1972, lon: 55.27438, r: 70, rot: 0, build: burj },
+  { id: 'quéops', foot: 115, name: 'Pirâmide de Quéops', lat: 29.97923, lon: 31.13423, r: 140, rot: 0, build: () => pyramid(230, 139) },
+  { id: 'quéfren', foot: 107, name: 'Pirâmide de Quéfren', lat: 29.97611, lon: 31.13077, r: 130, rot: 0, build: () => pyramid(215, 136) },
+  { id: 'miquerinos', foot: 52, name: 'Pirâmide de Miquerinos', lat: 29.97252, lon: 31.12825, r: 70, rot: 0, build: () => pyramid(105, 65) },
+  { id: 'taj', foot: 40, name: 'Taj Mahal', lat: 27.17515, lon: 78.04215, r: 75, rot: 0, build: taj },
+  { id: 'empire', foot: 50, name: 'Empire State', lat: 40.74844, lon: -73.98566, r: 75, rot: 29, build: empire },
+  { id: 'cn', foot: 12, name: 'CN Tower', lat: 43.64257, lon: -79.38706, r: 40, rot: 0, build: cntower },
+  { id: 'skytree', foot: 28, name: 'Tokyo Skytree', lat: 35.71006, lon: 139.8107, r: 50, rot: 0, build: skytree },
+  { id: 'washington', foot: 8, name: 'Monumento a Washington', lat: 38.88948, lon: -77.03528, r: 25, rot: 0, build: washington },
+  { id: 'arch', foot: 90, name: 'Gateway Arch', lat: 38.62469, lon: -90.18478, r: 110, rot: 80, build: arch },
 ];
+
+// Colisão a partir do próprio modelo: cada peça é fatiada na altura e cada fatia vira uma caixa
+// (as fatias de um cone viram degraus). Fatias com vãos (pernas, arco, roda) viram várias caixas.
+function buildColliderShapes(obj) {
+  const keepPos = obj.position.clone(), keepRot = obj.rotation.y;
+  obj.position.set(0, 0, 0); obj.rotation.y = 0; obj.updateMatrixWorld(true);
+  const shapes = [], boxes = [], v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3();
+  obj.traverse((m) => {
+    if (!m.isMesh) return;
+    const g = m.geometry; g.computeBoundingBox();
+    const bb = g.boundingBox.clone().applyMatrix4(m.matrixWorld), sz = bb.getSize(v);
+    if (Math.max(sz.x, sz.y, sz.z) < 1.5) return; // detalhes pequenos (raios da coroa, chama) não bloqueiam
+    // grade horizontal da peça (no máximo 40 × 40 células) e pontos da superfície a cada meia célula
+    const cell = Math.max(1, Math.max(sz.x, sz.z) / 40), stepL = cell / 2;
+    const P = g.attributes.position, idx = g.index, pts = [];
+    const tri = (i) => (idx ? idx.getX(i) : i);
+    const n = idx ? idx.count : P.count;
+    // pontos sobre toda a superfície de cada triângulo (não só nas arestas): faces grandes e lisas também contam
+    const C3 = new THREE.Vector3();
+    for (let i = 0; i < n; i += 3) {
+      a.fromBufferAttribute(P, tri(i)).applyMatrix4(m.matrixWorld); b.fromBufferAttribute(P, tri(i + 1)).applyMatrix4(m.matrixWorld); C3.fromBufferAttribute(P, tri(i + 2)).applyMatrix4(m.matrixWorld);
+      const n1 = Math.min(400, Math.max(1, Math.ceil(a.distanceTo(b) / stepL))), n2 = Math.min(400, Math.max(1, Math.ceil(a.distanceTo(C3) / stepL)));
+      for (let u = 0; u <= n1; u++) for (let w = 0; w <= n2; w++) {
+        const fu = u / n1, fw = w / n2; if (fu + fw > 1.0001) continue;
+        pts.push([a.x + (b.x - a.x) * fu + (C3.x - a.x) * fw, a.y + (b.y - a.y) * fu + (C3.y - a.y) * fw, a.z + (b.z - a.z) * fu + (C3.z - a.z) * fw]);
+      }
+      // arestas BC finas (triângulos alongados) também
+      const k = Math.max(1, Math.ceil(b.distanceTo(C3) / stepL));
+      for (let q = 0; q <= k; q++) pts.push([b.x + (C3.x - b.x) * q / k, b.y + (C3.y - b.y) * q / k, b.z + (C3.z - b.z) * q / k]);
+    }
+    const nb = Math.max(1, Math.min(24, Math.ceil(sz.y / 4))), bh = sz.y / nb;
+    const gx0 = bb.min.x - cell, gz0 = bb.min.z - cell, W = Math.ceil((bb.max.x - gx0) / cell) + 2, H = Math.ceil((bb.max.z - gz0) / cell) + 2;
+    for (let k = 0; k < nb; k++) {
+      const y0 = bb.min.y + k * bh, y1 = y0 + bh;
+      // marca as células com superfície nesta fatia
+      const mark = new Uint8Array(W * H);
+      for (const p of pts) if (p[1] >= y0 - 0.01 && p[1] <= y1 + 0.01) mark[Math.floor((p[2] - gz0) / cell) * W + Math.floor((p[0] - gx0) / cell)] = 1;
+      // preenche o interior fechado (casca oca vira sólido): o que não se alcança pela borda fica cheio.
+      // A busca usa as paredes engrossadas em 1 célula para não "vazar" por frestas na diagonal.
+      const wall = new Uint8Array(W * H);
+      for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) if (mark[z * W + x]) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, zz = z + dz; if (xx >= 0 && zz >= 0 && xx < W && zz < H) wall[zz * W + xx] = 1; }
+      const out = new Uint8Array(W * H), st = [];
+      for (let x = 0; x < W; x++) { st.push(x, (H - 1) * W + x); } for (let z = 0; z < H; z++) { st.push(z * W, z * W + W - 1); }
+      while (st.length) { const i = st.pop(); if (out[i] || wall[i]) continue; out[i] = 1; const x = i % W, z = (i - x) / W; if (x > 0) st.push(i - 1); if (x < W - 1) st.push(i + 1); if (z > 0) st.push(i - W); if (z < H - 1) st.push(i + W); }
+      const solid = (i) => mark[i] || (!out[i] && !wall[i]) || (wall[i] && !out[i] && isEnclosed(i));
+      const isEnclosed = (i) => { const x = i % W, z = (i - x) / W; for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const xx = x + dx, zz = z + dz; if (xx < 0 || zz < 0 || xx >= W || zz >= H || out[zz * W + xx]) return false; } return true; };
+      // linhas da grade viram caixas; linhas iguais e vizinhas se juntam numa só
+      let prev = [];
+      for (let z = 0; z < H; z++) {
+        const runs = [];
+        for (let x = 0; x < W; x++) { if (!solid(z * W + x)) continue; let e = x; while (e + 1 < W && solid(z * W + e + 1)) e++; runs.push([x, e]); x = e; }
+        const next = [];
+        for (const r of runs) { const p = prev.find((q) => q.x0 === r[0] && q.x1 === r[1]); if (p) { p.z1 = z; next.push(p); } else { const q = { x0: r[0], x1: r[1], z0: z, z1: z }; next.push(q); boxes.push(q); } }
+        prev = next;
+      }
+      for (const q of boxes.splice(0)) shapes.push({ x: gx0 + (q.x0 + q.x1 + 1) / 2 * cell, z: gz0 + (q.z0 + q.z1 + 1) / 2 * cell, hx: (q.x1 - q.x0 + 1) / 2 * cell, hz: (q.z1 - q.z0 + 1) / 2 * cell, y0, y1 });
+    }
+  });
+  obj.position.copy(keepPos); obj.rotation.y = keepRot; obj.updateMatrixWorld(true);
+  return shapes;
+}
 
 export class Landmarks {
   constructor(scene, frame, terrain, world) {
@@ -130,6 +223,26 @@ export class Landmarks {
     world.extraLabels = this.items.map((i) => ({ name: i.name, cls: 'landmark', mx: i.mx, my: i.my, rank: 0, range: 45e3, ele: 0, lm: i }));
     this.labels = world.extraLabels;
   }
+  // altura de assentamento: o ponto mais baixo do chão sob a pegada (assim nada fica flutuando em declive)
+  ground(it, p) {
+    const T = this.terrain, g0 = T.heightAt(p.x, p.z); if (!g0.ok) return null;
+    let h = g0.h;
+    for (const fr of [0.5, 1]) for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2, g = T.heightAt(p.x + Math.cos(a) * it.foot * fr, p.z + Math.sin(a) * it.foot * fr); if (g.ok) h = Math.min(h, g.h); }
+    return { h, z: g0.z };
+  }
+  // colisores do monumento (caixas orientadas) no sistema de colisão do jogo
+  collide(it) {
+    if (!this.physics) return;
+    this.physics.removeGroup(it.pg); it.pg = null;
+    it.shapes ||= buildColliderShapes(it.obj);
+    const f = this.frame, th = -(it.rot || 0) * Math.PI / 180, c = Math.cos(th), s = Math.sin(th);
+    let ext = 10; for (const q of it.shapes) ext = Math.max(ext, Math.hypot(q.x, q.z) + Math.hypot(q.hx, q.hz) + 5);
+    const S = ext * 2, items = it.shapes.map((q, i) => ({
+      t: 'b', x: S / 2 + q.x * c + q.z * s, z: S / 2 - q.x * s + q.z * c, hx: q.hx, hz: q.hz, c, s: -s,
+      y0: it.h + q.y0, y1: it.h + q.y1, layer: LAYER.STATIC, id: `lm:${it.id}:${i}`,
+    }));
+    it.pg = this.physics.addGroup(it.mx - S / 2 / f.k, it.my + S / 2 / f.k, f.k, S, items);
+  }
   update(C) {
     const f = this.frame;
     for (let n = 0; n < this.items.length; n++) {
@@ -137,11 +250,11 @@ export class Landmarks {
       const p = f.toLocal(it.lat, it.lon);
       const dx = p.x - C.x, dz = p.z - C.z, d = Math.hypot(dx, dz);
       it.dist = d;
-      if (d > 60000) { if (it.obj) it.obj.visible = false; continue; }
+      if (d > 60000) { if (it.obj) it.obj.visible = false; if (it.pg) { this.physics?.removeGroup(it.pg); it.pg = null; it.hz = -1; } continue; }
       if (!it.obj) { it.obj = it.build(); it.obj.rotation.y = -(it.rot || 0) * Math.PI / 180; this.group.add(it.obj); }
-      if (it.hz < 13) { const g = this.terrain.heightAt(p.x, p.z); if (g.ok && g.z > it.hz) { it.h = g.h; it.hz = g.z; this.labels[n].ele = g.h + 60; this.labels[n].h = null; } }
+      if (it.hz < 13) { const g = this.ground(it, p); if (g && g.z > it.hz) { it.h = g.h - 0.3; it.hz = g.z; this.labels[n].ele = g.h + 60; this.labels[n].h = null; it.obj.position.y = it.h; this.collide(it); } }
       it.obj.visible = it.h != null;
-      it.obj.position.set(dx, (it.h || 0) - 0.8 - (d * d) / (2 * RE), dz);
+      it.obj.position.set(dx, (it.h || 0) - (d * d) / (2 * RE), dz);
     }
   }
 }

@@ -400,6 +400,7 @@ async function refreshPlace(lat, lon, alt) {
 
 // ---------------- desafios, mapa, fotos, favoritos e personagem ----------------
 const landmarks = new Landmarks(scene, frame, terrain, world);
+landmarks.physics = physics;
 const wpEl = $('wp'), goalEl = $('goal');
 const game = new Game(scene, frame, terrain, player, camera, {
   toast, sound: (k) => sound[k]?.(),
