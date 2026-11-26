@@ -229,7 +229,7 @@ export class World {
           let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
           for (const p of rings[0]) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < z0) z0 = p[1]; if (p[1] > z1) z1 = p[1]; }
           (c.waterPolys ||= []).push({ x0, x1, z0, z1, rings, level: lake ? lvl + 0.7 : null, ocean });
-          for (const tr of tris) for (const ii of tr) { const p = flat[ii]; if (!p) continue; wpos.push(p[0], (lake ? lvl : H(p[0], p[1])) + 0.7, p[1]); }
+          for (const tr of tris) for (const ii of tr) { const p = flat[ii]; if (!p) continue; wpos.push(p[0], lake ? lvl + 0.7 : H(p[0], p[1]) + 0.3, p[1]); }
         }
       }
     }
@@ -246,7 +246,8 @@ export class World {
             const a = [line[i][0] * s, line[i][1] * s], b = [line[i + 1][0] * s, line[i + 1][1] * s];
             const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz); if (l < 0.01) continue;
             const nx = (-dz / l) * hw, nz = (dx / l) * hw;
-            const ha = H(a[0], a[1]) + 0.6, hb = H(b[0], b[1]) + 0.6;
+            const ha = H(a[0], a[1]) + 0.3, hb = H(b[0], b[1]) + 0.3;
+            (c.wsegs ||= []).push([a[0], a[1], b[0], b[1], hw]);
             wpos.push(a[0] - nx, ha, a[1] - nz, a[0] + nx, ha, a[1] + nz, b[0] + nx, hb, b[1] + nz, a[0] - nx, ha, a[1] - nz, b[0] + nx, hb, b[1] + nz, b[0] - nx, hb, b[1] - nz);
           }
         }
@@ -277,7 +278,7 @@ export class World {
           const pts = []; // reamostra para acompanhar o relevo
           for (let i = 0; i < line.length; i++) {
             const a = [line[i][0] * s, line[i][1] * s];
-            if (i > 0) { const b = pts[pts.length - 1], l = Math.hypot(a[0] - b[0], a[1] - b[1]), n = Math.min(Math.ceil(l / 26), 40); for (let q = 1; q < n; q++) pts.push([b[0] + (a[0] - b[0]) * q / n, b[1] + (a[1] - b[1]) * q / n]); }
+            if (i > 0) { const b = pts[pts.length - 1], l = Math.hypot(a[0] - b[0], a[1] - b[1]), n = Math.min(Math.ceil(l / 9), 120); for (let q = 1; q < n; q++) pts.push([b[0] + (a[0] - b[0]) * q / n, b[1] + (a[1] - b[1]) * q / n]); }
             pts.push(a);
           }
           if (pts.length < 2) continue;
@@ -291,7 +292,7 @@ export class World {
             const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1;
             ns.push([-dz / l, dx / l]);
             const t = cum[i] / tot;
-            let y = H(pts[i][0], pts[i][1]) + 0.4;
+            let y = H(pts[i][0], pts[i][1]) + 0.5;
             if (bridge) y = Math.max(y, h0 + (h1 - h0) * t + Math.sin(Math.PI * t) * Math.min(tot * 0.035, 30) + 1.2);
             ys.push(y);
           }
@@ -323,7 +324,7 @@ export class World {
         for (const sd of [-1, 1]) for (let i = 0; i < n - 1; i++) {
           // ponto da calçada no trecho i: t ao longo do trecho, off = distância do eixo da rua, dy = altura sobre a pista
           const SP = (t, off, dy) => [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t + sd * (ns[i][0] + (ns[i + 1][0] - ns[i][0]) * t) * off, ys[i] + (ys[i + 1] - ys[i]) * t + dy, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t + sd * (ns[i][1] + (ns[i + 1][1] - ns[i][1]) * t) * off];
-          const free = (t) => { const q = SP(t, hw + SW / 2, 0); return !this.roadNear(c, q[0], q[2], L.li, 0.35); };
+          const free = (t) => [hw + 0.25, hw + SW / 2, hw + SW - 0.1].every((o) => { const q = SP(t, o, 0); return !this.roadNear(c, q[0], q[2], L.li, 0.45); });
           const mid = SP(0.5, hw + SW / 2, 0);
           if (!urban(mid[0], mid[2])) continue;
           // a calçada para antes das ruas que cruzam: o trecho é cortado em pedaços e só ficam os livres
@@ -514,6 +515,12 @@ export class World {
   treeOk(x, z) {
     const c = this.cellAt(x, z); if (!c) return true;
     const lx = this._lx, lz = this._lz;
+    if (this.waterAt(x, z)) return false;
+    if (c.wsegs) for (const [ax, az, bx, bz, hw] of c.wsegs) {
+      if (lx < Math.min(ax, bx) - hw - 3 || lx > Math.max(ax, bx) + hw + 3 || lz < Math.min(az, bz) - hw - 3 || lz > Math.max(az, bz) + hw + 3) continue;
+      const ex = bx - ax, ez = bz - az, l2 = ex * ex + ez * ez, t = l2 > 0 ? Math.max(0, Math.min(1, ((lx - ax) * ex + (lz - az) * ez) / l2)) : 0;
+      if (Math.hypot(lx - ax - ex * t, lz - az - ez * t) < hw + 2.5) return false;
+    }
     if (this.roadDist(c, lx, lz) < SW + 0.8) return false;
     const a = c.recGrid && c.recGrid.get(Math.floor(lx / 32) * 4096 + Math.floor(lz / 32));
     if (a) for (const r of a) { const R = r.rings[0]; if (inRing(R, lx, lz) || inRing(R, lx + 1.2, lz) || inRing(R, lx - 1.2, lz) || inRing(R, lx, lz + 1.2) || inRing(R, lx, lz - 1.2)) return false; }

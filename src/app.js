@@ -74,7 +74,7 @@ canvas.addEventListener('webglcontextlost', (e) => {
 });
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
-  const maxPR = { baixa: 0.75, media: 1.25, alta: 2 }[Q];
+  const maxPR = { baixa: 1, media: 1.5, alta: 2 }[Q];
   pixelRatio = Math.min(window.devicePixelRatio || 1, maxPR);
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(w, h, false);

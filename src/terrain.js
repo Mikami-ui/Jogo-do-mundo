@@ -391,7 +391,7 @@ class Node {
       nor[k * 3] = -dx * il; nor[k * 3 + 1] = il; nor[k * 3 + 2] = -dz * il;
     }
     const base = (N + 1) * (N + 1);
-    const skirt = Math.max(this.size * tm.frame.k * 0.02, 5);
+    const skirt = Math.max(this.size * tm.frame.k * 0.02, 5, (mx - mn) * 0.5);
     const edges = [(k) => [k, 0], (k) => [k, N], (k) => [0, k], (k) => [N, k]];
     edges.forEach((e, s) => {
       for (let k = 0; k <= N; k++) {
@@ -482,7 +482,7 @@ export class Terrain {
   setQuality(q) {
     const Q = { baixa: [17, 1.25, true, 450, 160], media: [18, 1.7, true, 800, 330], alta: [19, 2.2, true, 1300, 600] }[q];
     [this.maxZ, this.splitF, this.treesOn, this.treeDist, this.treeCount] = Q;
-    this.coarseZ = { baixa: 16, media: 12, alta: 0 }[q]; // até esse zoom a malha usa metade dos triângulos (terreno distante)
+    this.coarseZ = { baixa: 13, media: 12, alta: 0 }[q]; // até esse zoom a malha usa metade dos triângulos (terreno distante)
     this.imgMaxZ = Math.min(IMAGERY[this.imgSrc].maxZ, this.maxZ);
   }
   setImagery(src) { this.imgSrc = src; this.imgMaxZ = Math.min(IMAGERY[src].maxZ, this.maxZ); this.reset(); this.texs.clear(); }
