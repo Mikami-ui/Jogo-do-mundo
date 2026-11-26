@@ -160,6 +160,16 @@ void main(){
   vec3 alb;
   if (uHasTex > 0.5) {
     alb = texture2D(uTex, uUvX.xy + vUv*uUvX.zw).rgb;
+    // paredões: a foto é tirada de cima e, nas encostas íngremes, vira listras esticadas.
+    // Ali usa a cor média da foto (mipmap borrado) com textura de rocha na vertical.
+    float steep = 1.0 - smoothstep(0.42, 0.72, vSlope);
+    if (steep > 0.0) {
+      vec3 avg = texture2D(uTex, uUvX.xy + vUv*uUvX.zw, 4.0).rgb;
+      vec2 wuv = vec2(vDet.x + vDet.y, vH);
+      float rk = texture2D(uDetail, wuv / 7.0).r * 0.6 + texture2D(uDetail, wuv / 23.0).g * 0.4;
+      float strata = 0.85 + 0.15 * sin(vH * 0.9 + rk * 3.0);
+      alb = mix(alb, avg * (0.7 + 0.6 * rk) * strata, steep);
+    }
   } else {
     vec3 grass = mix(vec3(0.05,0.09,0.03), vec3(0.11,0.12,0.05), nz);
     vec3 rock = mix(vec3(0.10,0.095,0.09), vec3(0.18,0.16,0.14), nz);

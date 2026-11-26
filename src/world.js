@@ -233,7 +233,7 @@ export class World {
         }
       }
     }
-    const WW = c.layers.waterway;
+    const WW = c.layers.waterway, wline = [];
     if (WW) {
       const s = sizeL / WW.extent;
       for (const ft of WW.features) {
@@ -246,9 +246,13 @@ export class World {
             const a = [line[i][0] * s, line[i][1] * s], b = [line[i + 1][0] * s, line[i + 1][1] * s];
             const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz); if (l < 0.01) continue;
             const nx = (-dz / l) * hw, nz = (dx / l) * hw;
-            const ha = H(a[0], a[1]) + 0.3, hb = H(b[0], b[1]) + 0.3;
             (c.wsegs ||= []).push([a[0], a[1], b[0], b[1], hw]);
-            wpos.push(a[0] - nx, ha, a[1] - nz, a[0] + nx, ha, a[1] + nz, b[0] + nx, hb, b[1] + nz, a[0] - nx, ha, a[1] - nz, b[0] + nx, hb, b[1] + nz, b[0] - nx, hb, b[1] - nz);
+            const np = Math.min(Math.ceil(l / 6), 60);
+            for (let q = 0; q < np; q++) {
+              const p0 = [a[0] + dx * q / np, a[1] + dz * q / np], p1 = [a[0] + dx * (q + 1) / np, a[1] + dz * (q + 1) / np];
+              const ha = H(p0[0], p0[1]) + 0.3, hb = H(p1[0], p1[1]) + 0.3;
+              wline.push(p0[0] - nx, ha, p0[1] - nz, p0[0] + nx, ha, p0[1] + nz, p1[0] + nx, hb, p1[1] + nz, p0[0] - nx, ha, p0[1] - nz, p1[0] + nx, hb, p1[1] + nz, p1[0] - nx, hb, p1[1] - nz);
+            }
           }
         }
       }
@@ -401,6 +405,22 @@ export class World {
       }
     }
     if (items.length && this.physics) c.pgroups.push(this.physics.addGroup(c.amx, c.amy, k, sizeL, items));
+    // água (rios e canais) não é desenhada sobre rua nem calçada: em mapas, o canal às vezes invade a pista
+    const onRoad = (x, z) => c.roadGrid && c.roadGrid.size && this.roadDist(c, x, z) < SW + 0.3;
+    const clip = (arr, strict) => {
+      const keep = [];
+      for (let i = 0; i < arr.length; i += 9) {
+        const cx = (arr[i] + arr[i + 3] + arr[i + 6]) / 3, cz = (arr[i + 2] + arr[i + 5] + arr[i + 8]) / 3;
+        if (onRoad(cx, cz)) continue;
+        if (strict && (onRoad(arr[i], arr[i + 2]) || onRoad(arr[i + 3], arr[i + 5]) || onRoad(arr[i + 6], arr[i + 8]))) continue;
+        for (let k = 0; k < 9; k++) keep.push(arr[i + k]);
+      }
+      return keep;
+    };
+    {
+      const a1 = clip(wpos, false), a2 = clip(wline, true);
+      wpos.length = 0; for (const v of a1) wpos.push(v); for (const v of a2) wpos.push(v);
+    }
     if (wpos.length) {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3));
