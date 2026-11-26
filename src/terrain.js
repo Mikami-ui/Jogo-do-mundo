@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { ATMO_GLSL } from './atmosphere.js';
 import { RE, tileSize, tileMinX, tileMaxY, MERC_MAX, clamp, mulberry } from './geo.js';
 import { treeGeometries } from './scenery.js';
+import { decodePNG, canDecodePNG } from './png.js';
 
 const N = 32;                 // segmentos por tile
 const ELEV_MAX_Z = 13;
@@ -258,10 +259,25 @@ class ElevCache {
     this.sched.want('e' + k, prio, async () => {
       e.state = 'loading';
       try {
-        const bmp = await fetchBitmap(ELEV_URL(z, x, y));
-        const px = getPixels(bmp); bmp.close?.();
         const d = new Float32Array(65536);
-        for (let i = 0, j = 0; i < 65536; i++, j += 4) d[i] = px[j] * 256 + px[j + 1] + px[j + 2] / 256 - 32768;
+        let done = false;
+        if (canDecodePNG) {
+          // leitura exata dos bytes do arquivo (não passa pela gestão de cor do aparelho)
+          try {
+            const r = await fetch(ELEV_URL(z, x, y), { mode: 'cors' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const img = await decodePNG(new Uint8Array(await r.arrayBuffer()));
+            if (img.w !== 256 || img.h !== 256) throw new Error('tamanho');
+            const px = img.rgb;
+            for (let i = 0, j = 0; i < 65536; i++, j += 3) d[i] = px[j] * 256 + px[j + 1] + px[j + 2] / 256 - 32768;
+            done = true;
+          } catch (er) { if (String(er.message).startsWith('HTTP')) throw er; }
+        }
+        if (!done) { // navegador sem DecompressionStream: caminho antigo
+          const bmp = await fetchBitmap(ELEV_URL(z, x, y));
+          const px = getPixels(bmp); bmp.close?.();
+          for (let i = 0, j = 0; i < 65536; i++, j += 4) d[i] = px[j] * 256 + px[j + 1] + px[j + 2] / 256 - 32768;
+        }
         e.data = d; e.state = 'ok';
         this.evict();
       } catch (err) { e.state = 'fail'; e.retry = performance.now() + 5000; }
