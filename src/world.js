@@ -297,7 +297,8 @@ export class World {
             ns.push([-dz / l, dx / l]);
             const t = cum[i] / tot;
             let y = H(pts[i][0], pts[i][1]) + 0.5;
-            if (bridge) y = Math.max(y, h0 + (h1 - h0) * t + Math.sin(Math.PI * t) * Math.min(tot * 0.035, 30) + 1.2);
+            // ponte: tabuleiro quase reto entre as cabeceiras, com leve arco (até 6 m) e sempre acima do chão/água
+            if (bridge) y = Math.max(y, h0 + (h1 - h0) * t + Math.sin(Math.PI * t) * Math.min(tot * 0.02, 6) + 1.2);
             ys.push(y);
           }
           const L = { pts, cum, ys, ns, hw, cl, mark, g0, bridge, li: lines.length, s0: c.segs.length };
