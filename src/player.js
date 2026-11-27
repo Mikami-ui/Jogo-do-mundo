@@ -375,7 +375,9 @@ export class CameraRig {
     const up = fp ? (ground ? 0.72 : 0.2) : ground ? 0.95 : p.hover ? 1.0 : 1.25;
     const C = { x: p.x - L.x * dist + (fp ? L.x * 0.25 : 0), y: p.y + up - L.y * dist, z: p.z - L.z * dist + (fp ? L.z * 0.25 : 0) };
     const g = terrain.heightAt(C.x, C.z);
-    if (g.ok && C.y < g.h + 0.5) C.y = g.h + 0.5;
+    // a malha visível do terreno pode ficar alguns metros acima da altura exata em cristas e encostas íngremes:
+    // a câmera respeita o ponto mais alto ao redor dela, para não entrar no chão
+    if (g.ok) { let top = g.h; for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3, h2 = terrain.heightAt(C.x + Math.cos(a) * 4, C.z + Math.sin(a) * 4); if (h2.ok) top = Math.max(top, h2.h); } if (C.y < top + 1.2) C.y = top + 1.2; }
     // tremor em alta velocidade / perto do Mach 1 / impactos
     const m = p.mach;
     const trans = Math.exp(-((m - 1) ** 2) / 0.01) * 0.25;

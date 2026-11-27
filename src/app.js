@@ -856,4 +856,4 @@ $('boot').textContent = 'Escolha um lugar para começar · versão ' + (typeof _
 loop();
 // posição inicial atrás do menu (cenário de fundo)
 frame.set(45.905, 6.86); player.y = 2600; rig.yaw = 205 * DEG; player.launch(rig.yaw, 0, 0);
-window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe, buildings, world, game, landmarks, openTab, inp, avatar, setBoost, physics, objectives, quality: () => Q, fps: () => fps, stats, arriving: () => arriving, takePhoto: () => { photoReq = true; } };
+window.__jdm = { player, terrain, frame, go, G, S, setHour, rig, clouds, weather: () => weather, applyWeather, renderer, scene, camera, post, sky, globe, buildings, world, game, landmarks, openTab, inp, avatar, setBoost, physics, objectives, quality: () => Q, fps: () => fps, stats, arriving: () => arriving, takePhoto: () => { photoReq = true; } };

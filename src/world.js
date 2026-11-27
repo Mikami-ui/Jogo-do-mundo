@@ -229,7 +229,16 @@ export class World {
           let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
           for (const p of rings[0]) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < z0) z0 = p[1]; if (p[1] > z1) z1 = p[1]; }
           (c.waterPolys ||= []).push({ x0, x1, z0, z1, rings, level: lake ? lvl + 0.7 : null, ocean });
-          for (const tr of tris) for (const ii of tr) { const p = flat[ii]; if (!p) continue; wpos.push(p[0], lake ? lvl + 0.7 : H(p[0], p[1]) + 0.3, p[1]); }
+          // rio: o contorno do mapa às vezes sobe pelo barranco; a altura de cada ponto é o fundo do vale ali perto
+          // (menor altura num raio de 40 m), e triângulos com desnível grande ficam planos — nada de água subindo o paredão
+          const lvlAt = new Map();
+          const wl = (p) => { let v = lvlAt.get(p); if (v == null) { v = H(p[0], p[1]); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; for (const d of [15, 40]) v = Math.min(v, H(p[0] + Math.cos(a) * d, p[1] + Math.sin(a) * d)); } lvlAt.set(p, v); } return v; };
+          for (const tr of tris) {
+            const q = tr.map((ii) => flat[ii]); if (q.some((p) => !p)) continue;
+            let ys = lake ? q.map(() => lvl + 0.7) : q.map((p) => wl(p) + 0.3);
+            if (Math.max(...ys) - Math.min(...ys) > 6) { const m = Math.min(...ys); ys = ys.map(() => m); }
+            q.forEach((p, i) => wpos.push(p[0], ys[i], p[1]));
+          }
         }
       }
     }
