@@ -136,7 +136,7 @@ function eye() {
 }
 
 export const LANDMARKS = [
-  { id: 'cristo', foot: 4, name: 'Cristo Redentor', lat: -22.95192, lon: -43.21049, r: 25, rot: 15, build: cristo },
+  { id: 'cristo', foot: 4, peak: 180, name: 'Cristo Redentor', lat: -22.95192, lon: -43.21049, r: 25, rot: 15, build: cristo },
   { id: 'eiffel', foot: 55, name: 'Torre Eiffel', lat: 48.85837, lon: 2.29448, r: 75, rot: 45, build: eiffel },
   { id: 'liberdade', foot: 20, name: 'Estátua da Liberdade', lat: 40.68925, lon: -74.0445, r: 60, rot: -45, build: liberty },
   { id: 'bigben', foot: 7, name: 'Big Ben', lat: 51.50073, lon: -0.12463, r: 18, rot: 10, build: bigben },
@@ -225,7 +225,17 @@ export class Landmarks {
   }
   // altura de assentamento: o ponto mais baixo do chão sob a pegada (assim nada fica flutuando em declive)
   ground(it, p) {
-    const T = this.terrain, g0 = T.heightAt(p.x, p.z); if (!g0.ok) return null;
+    const T = this.terrain;
+    // monumento de cume (Cristo): o mapa de relevo pode ter o topo do morro deslocado; encaixa no ponto mais alto por perto
+    if (it.peak) {
+      let best = -1e9, bx = 0, bz = 0;
+      for (const [R, st, cx, cz] of [[it.peak, 10, 0, 0], [12, 2, null, null]]) {
+        const ox = cx ?? bx, oz = cz ?? bz;
+        for (let dx = -R; dx <= R; dx += st) for (let dz = -R; dz <= R; dz += st) { if (Math.hypot(dx + ox, dz + oz) > it.peak) continue; const g = T.heightAt(p.x + ox + dx, p.z + oz + dz); if (g.ok && g.h > best) { best = g.h; bx = ox + dx; bz = oz + dz; } }
+      }
+      it.off = [bx, bz]; p = { x: p.x + bx, z: p.z + bz };
+    }
+    const g0 = T.heightAt(p.x, p.z); if (!g0.ok) return null;
     let h = g0.h;
     for (const fr of [0.5, 1]) for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2, g = T.heightAt(p.x + Math.cos(a) * it.foot * fr, p.z + Math.sin(a) * it.foot * fr); if (g.ok) h = Math.min(h, g.h); }
     return { h, z: g0.z };
@@ -241,18 +251,19 @@ export class Landmarks {
       t: 'b', x: S / 2 + q.x * c + q.z * s, z: S / 2 - q.x * s + q.z * c, hx: q.hx, hz: q.hz, c, s: -s,
       y0: it.h + q.y0, y1: it.h + q.y1, layer: LAYER.STATIC, id: `lm:${it.id}:${i}`,
     }));
-    it.pg = this.physics.addGroup(it.mx - S / 2 / f.k, it.my + S / 2 / f.k, f.k, S, items);
+    const o = it.off || [0, 0];
+    it.pg = this.physics.addGroup(it.mx + (o[0] - S / 2) / f.k, it.my - (o[1] - S / 2) / f.k, f.k, S, items);
   }
   update(C) {
     const f = this.frame;
     for (let n = 0; n < this.items.length; n++) {
       const it = this.items[n];
       const p = f.toLocal(it.lat, it.lon);
-      const dx = p.x - C.x, dz = p.z - C.z, d = Math.hypot(dx, dz);
+      const o = it.off || [0, 0], dx = p.x + o[0] - C.x, dz = p.z + o[1] - C.z, d = Math.hypot(dx, dz);
       it.dist = d;
       if (d > 60000) { if (it.obj) it.obj.visible = false; if (it.pg) { this.physics?.removeGroup(it.pg); it.pg = null; it.hz = -1; } continue; }
       if (!it.obj) { it.obj = it.build(); it.obj.rotation.y = -(it.rot || 0) * Math.PI / 180; this.group.add(it.obj); }
-      if (it.hz < 13) { const g = this.ground(it, p); if (g && g.z > it.hz) { it.h = g.h - 0.3; it.hz = g.z; this.labels[n].ele = g.h + 60; this.labels[n].h = null; it.obj.position.y = it.h; this.collide(it); } }
+      if (it.hz < 13) { const g = this.ground(it, p); if (g && g.z > it.hz) { it.h = g.h - 0.3; it.hz = g.z; this.labels[n].ele = g.h + 60; this.labels[n].h = null; if (it.off) { this.labels[n].mx = it.mx + it.off[0] / f.k; this.labels[n].my = it.my - it.off[1] / f.k; } it.obj.position.y = it.h; this.collide(it); } }
       it.obj.visible = it.h != null;
       it.obj.position.set(dx, (it.h || 0) - (d * d) / (2 * RE), dz);
     }
