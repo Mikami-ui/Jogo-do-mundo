@@ -232,7 +232,7 @@ export class World {
           // rio: o contorno do mapa às vezes sobe pelo barranco; a altura de cada ponto é o fundo do vale ali perto
           // (menor altura num raio de 40 m), e triângulos com desnível grande ficam planos — nada de água subindo o paredão
           const lvlAt = new Map();
-          const wl = (p) => { let v = lvlAt.get(p); if (v == null) { v = H(p[0], p[1]); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; for (const d of [15, 40]) v = Math.min(v, H(p[0] + Math.cos(a) * d, p[1] + Math.sin(a) * d)); } lvlAt.set(p, v); } return v; };
+          const wl = (p) => { let v = lvlAt.get(p); if (v == null) { v = H(p[0], p[1]); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; for (const d of [15, 35, 60]) v = Math.min(v, H(p[0] + Math.cos(a) * d, p[1] + Math.sin(a) * d)); } lvlAt.set(p, v); } return v; };
           for (const tr of tris) {
             const q = tr.map((ii) => flat[ii]); if (q.some((p) => !p)) continue;
             let ys = lake ? q.map(() => lvl + 0.7) : q.map((p) => wl(p) + 0.3);
@@ -259,7 +259,10 @@ export class World {
             const np = Math.min(Math.ceil(l / 6), 60);
             for (let q = 0; q < np; q++) {
               const p0 = [a[0] + dx * q / np, a[1] + dz * q / np], p1 = [a[0] + dx * (q + 1) / np, a[1] + dz * (q + 1) / np];
-              const ha = H(p0[0], p0[1]) + 0.3, hb = H(p1[0], p1[1]) + 0.3;
+              // fundo do vale perto do ponto (a linha do mapa nem sempre passa exatamente no leito)
+              const floor = (x, z) => { let v = H(x, z); for (let i = 0; i < 8; i++) { const an = i * Math.PI / 4; for (const d of [hw + 6, 25, 45]) v = Math.min(v, H(x + Math.cos(an) * d, z + Math.sin(an) * d)); } return v; };
+              let ha = floor(p0[0], p0[1]) + 0.3, hb = floor(p1[0], p1[1]) + 0.3;
+              if (Math.abs(ha - hb) > 6) ha = hb = Math.min(ha, hb);
               wline.push(p0[0] - nx, ha, p0[1] - nz, p0[0] + nx, ha, p0[1] + nz, p1[0] + nx, hb, p1[1] + nz, p0[0] - nx, ha, p0[1] - nz, p1[0] + nx, hb, p1[1] + nz, p1[0] - nx, hb, p1[1] - nz);
             }
           }
